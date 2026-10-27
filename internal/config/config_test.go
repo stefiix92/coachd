@@ -428,3 +428,22 @@ func TestWebhookConfig(t *testing.T) {
 		t.Fatalf("token without URL: %v", err)
 	}
 }
+
+func TestDemoConfig(t *testing.T) {
+	for _, tc := range []struct {
+		val     string
+		want    bool
+		wantErr bool
+	}{{"true", true, false}, {"false", false, false}, {"", false, false}, {"on", false, true}, {"1", false, true}} {
+		c, err := Load(env(map[string]string{"COACHD_TIMEZONE": "Europe/Bratislava", "COACHD_DEMO": tc.val}))
+		if tc.wantErr {
+			if err == nil || !strings.Contains(err.Error(), "COACHD_DEMO") {
+				t.Errorf("%q: err = %v, want one naming COACHD_DEMO", tc.val, err)
+			}
+			continue
+		}
+		if err != nil || c.Demo != tc.want {
+			t.Errorf("%q: Demo = %v, err %v, want %v", tc.val, c != nil && c.Demo, err, tc.want)
+		}
+	}
+}

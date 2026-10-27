@@ -36,6 +36,7 @@ import (
 	"github.com/stefiix92/coachd/internal/config"
 	"github.com/stefiix92/coachd/internal/garmin"
 	"github.com/stefiix92/coachd/internal/garminkey"
+	"github.com/stefiix92/coachd/internal/ingest"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/telemetry"
 )
@@ -117,11 +118,17 @@ func startServe(t *testing.T, cfg *config.Config) *running {
 // startServeWith is startServe with the caller's telemetry (to read logs).
 func startServeWith(t *testing.T, cfg *config.Config, tel *telemetry.Telemetry) *running {
 	t.Helper()
+	return startServeGarmin(t, cfg, tel, emptyGarmin{}, testKeys(t, cfg))
+}
+
+// startServeGarmin is startServeWith with the caller's Garmin and key holder.
+func startServeGarmin(t *testing.T, cfg *config.Config, tel *telemetry.Telemetry, g ingest.Garmin, keys *garminkey.Holder) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan Addrs, 1)
 	r := &running{cancel: cancel, done: make(chan error, 1)}
 	go func() {
-		r.done <- runServe(ctx, cfg, emptyGarmin{}, testKeys(t, cfg), tel, func(a Addrs) { ready <- a })
+		r.done <- runServe(ctx, cfg, g, keys, tel, func(a Addrs) { ready <- a })
 	}()
 	select {
 	case r.addrs = <-ready:

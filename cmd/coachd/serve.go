@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/stefiix92/coachd/internal/backup"
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/config"
+	"github.com/stefiix92/coachd/internal/demo"
 	"github.com/stefiix92/coachd/internal/deviceapi"
 	"github.com/stefiix92/coachd/internal/garmin"
 	"github.com/stefiix92/coachd/internal/garminkey"
@@ -79,17 +81,11 @@ func serveMain() int {
 		fmt.Fprintln(os.Stderr, "coachd serve: telemetry setup failed")
 		return 1
 	}
-	// The key in use: the configured one, or one renewed on the page,
-	// whichever expires later.
-	keys, err := garminkey.Load(cfg.DataDir, garminkey.Key{Value: cfg.GarminAPIKey, Expires: cfg.GarminKeyExpires})
+	keys, g, err := garminSource(cfg, tel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "coachd serve:", err)
 		return 1
 	}
-	if today := civil.Of(time.Now(), cfg.TZ); keys.Expires().Before(today) {
-		tel.Logger.Warn("garmin api key expired", "component", "serve", "calendar_date", keys.Expires().String())
-	}
-	g := garmin.New(garmin.DefaultBaseURL, keys.Value(), nil, tel.Metrics)
 	code := 0
 	if err := runServe(ctx, cfg, g, keys, tel, nil); err != nil {
 		tel.Logger.Error("serve failed", "component", "serve", "error_class", fmt.Sprintf("%T", err))
@@ -102,8 +98,34 @@ func serveMain() int {
 	return code
 }
 
-// validateServeConfig checks the settings only serve needs.
+// garminSource returns the Garmin key holder and the Garmin that ingest
+// reads: in demo mode a keyless holder and the synthetic Garmin, which reads
+// nothing from the data directory; otherwise the configured key, or one
+// renewed on the page, whichever expires later, and the Garmin client.
+func garminSource(cfg *config.Config, tel *telemetry.Telemetry) (*garminkey.Holder, ingest.Garmin, error) {
+	if cfg.Demo {
+		return garminkey.NoKey(demo.KeyExpires), demo.New(cfg.TZ, time.Now), nil
+	}
+	keys, err := garminkey.Load(cfg.DataDir, garminkey.Key{Value: cfg.GarminAPIKey, Expires: cfg.GarminKeyExpires})
+	if err != nil {
+		return nil, nil, err
+	}
+	if today := civil.Of(time.Now(), cfg.TZ); keys.Expires().Before(today) {
+		tel.Logger.Warn("garmin api key expired", "component", "serve", "calendar_date", keys.Expires().String())
+	}
+	return keys, garmin.New(garmin.DefaultBaseURL, keys.Value(), nil, tel.Metrics), nil
+}
+
+// validateServeConfig checks the settings only serve needs. Demo mode needs
+// no Garmin key and refuses one, so a real deployment's settings never start
+// a demo by mistake.
 func validateServeConfig(cfg *config.Config) error {
+	if cfg.Demo {
+		if cfg.GarminAPIKey != "" || cfg.GarminKeyExpires != (civil.Date{}) {
+			return errors.New("COACHD_DEMO=true: leave COACHD_GARMIN_API_KEY_FILE and COACHD_GARMIN_KEY_EXPIRES unset (demo mode never calls Garmin)")
+		}
+		return nil
+	}
 	if cfg.GarminAPIKey == "" {
 		return errors.New("COACHD_GARMIN_API_KEY_FILE is required (file holding the Garmin Personal API key)")
 	}
@@ -133,11 +155,21 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, keys *ga
 		return fmt.Errorf("lock data dir: %w", err)
 	}
 	defer releaseData()
-	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, "coachd.db"))
+	dbPath := filepath.Join(cfg.DataDir, "coachd.db")
+	if err := checkDataMode(ctx, cfg.DataDir, dbPath, cfg.Demo); err != nil {
+		return err
+	}
+	db, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer db.Close()
+	if cfg.Demo {
+		if err := db.MarkDemo(ctx); err != nil {
+			return err
+		}
+		log.Warn("demo mode: synthetic Garmin data, no Garmin calls")
+	}
 	// Outside builtin mode no OAuth grant may survive (spec §3, M13):
 	// switching to Access and back never revives one.
 	if cfg.PublicAuth != config.PublicAuthBuiltin {
@@ -364,6 +396,45 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, keys *ga
 	wg.Wait()
 	closeAudit() // after servers and ingest stopped, before db.Close
 	return serveErr
+}
+
+// checkDataMode keeps demo data and the runner's Garmin data apart
+// (docs/design/demo-mode.md): demo mode refuses a coachd.db it did not
+// create, and real mode refuses a demo one. It reads the mark without
+// migrating the database. A data directory without a database is new, and
+// either mode may claim it.
+func checkDataMode(ctx context.Context, dataDir, dbPath string, demo bool) error {
+	if isNewDB(dbPath) {
+		return nil
+	}
+	marked, err := store.ReadDemo(ctx, dbPath)
+	if err != nil {
+		return fmt.Errorf("data directory: %w", err)
+	}
+	switch {
+	case demo && !marked:
+		return fmt.Errorf("COACHD_DEMO=true, but data directory %s holds a coachd database that is not a demo one, "+
+			"and demo mode never writes into real data: point COACHD_DATA_DIR at an empty directory (with Docker, a new volume)", dataDir)
+	case !demo && marked:
+		return fmt.Errorf("data directory %s holds demo data (it was created with COACHD_DEMO=true), "+
+			"and coachd never mixes it with Garmin data: set COACHD_DEMO=true to keep trying the demo, "+
+			"or point COACHD_DATA_DIR at an empty directory (with Docker, a new volume)", dataDir)
+	}
+	return nil
+}
+
+// isNewDB reports whether no database exists at path yet: no file, or an
+// empty one without a -wal beside it.
+func isNewDB(path string) bool {
+	fi, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	if err != nil || fi.Size() > 0 {
+		return false
+	}
+	wal, err := os.Stat(path + "-wal")
+	return errors.Is(err, fs.ErrNotExist) || (err == nil && wal.Size() == 0)
 }
 
 // laneMux serves /mcp, plus the runner page at / when webHandler is non-nil
