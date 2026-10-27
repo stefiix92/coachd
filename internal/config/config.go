@@ -14,7 +14,7 @@ import (
 )
 
 // Config holds all runtime settings. The Garmin key and expiry are required
-// only by `serve`, which validates them itself.
+// only by `serve` outside demo mode, which validates them itself.
 type Config struct {
 	DataDir                          string
 	TZ                               *time.Location
@@ -40,6 +40,9 @@ type Config struct {
 	// activity is stored; WebhookToken, from COACHD_WEBHOOK_TOKEN_FILE, is
 	// its optional bearer token. Both are secrets: never logged.
 	WebhookURL, WebhookToken string
+	// Demo (COACHD_DEMO=true) makes serve ingest synthetic data instead of
+	// calling Garmin, so coachd can be tried without a Garmin key.
+	Demo bool
 }
 
 // PublicAuth selects how the public listener authenticates requests.
@@ -75,6 +78,13 @@ func Load(getenv func(string) string) (*Config, error) {
 	case "", "off":
 	default:
 		return nil, fmt.Errorf("COACHD_DEVICE_API: must be on or off")
+	}
+	switch getenv("COACHD_DEMO") {
+	case "true":
+		c.Demo = true
+	case "", "false":
+	default:
+		return nil, fmt.Errorf("COACHD_DEMO: must be true or false")
 	}
 
 	tz := getenv("COACHD_TIMEZONE")

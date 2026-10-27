@@ -3,7 +3,7 @@ title: Install
 weight: 2
 ---
 
-From an empty Docker host to a working coachd: Garmin data in, an agent connected, and your passkey enrolled.
+From an empty Docker host to a working coachd: Garmin data in, an agent connected, and your passkey enrolled. Just looking? [Try it with demo data](demo/) first, without a Garmin key.
 
 `deploy/compose.yaml` runs coachd with Tailscale (the private lane), Grafana Alloy, VictoriaMetrics and VictoriaLogs. coachd publishes one port, its public listener on `127.0.0.1:8080`: a Cloudflare Tunnel (`cloudflared` on the host) or a reverse proxy on the host forwards your hostname to it. Run every command in these pages from `deploy/`.
 

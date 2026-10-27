@@ -25,7 +25,7 @@ docker compose run --rm --no-deps coachd restore /data/backups/coachd-<ts>.db
 docker compose start coachd
 ```
 
-`restore` refuses, before touching anything, while coachd runs, and for a corrupt or foreign snapshot, one from a newer schema, or one that doesn't match its manifest. Don't run other coachd commands during a restore. The previous database moves to `/data/pre-restore-<ts>/`; delete it once you're satisfied.
+`restore` refuses, before touching anything, while coachd runs, and for a corrupt or foreign snapshot, one from a newer schema, one that doesn't match its manifest, or a [demo](/docs/install/demo/) snapshot over real data (or the reverse). Don't run other coachd commands during a restore. The previous database moves to `/data/pre-restore-<ts>/`; delete it once you're satisfied.
 
 **Kept across a restore:** every revocation (agent tokens, passkeys, watches) and every used approval link, so nothing revoked works again and no approval link works twice. Sign-in sessions and, in built-in mode, app connections are cleared: sign in and reconnect your apps.
 

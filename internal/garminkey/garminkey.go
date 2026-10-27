@@ -62,6 +62,10 @@ func Load(dataDir string, configured Key) (*Holder, error) {
 	return h, nil
 }
 
+// NoKey returns a holder without a key whose expiry is expires, for demo
+// mode, which calls no Garmin. It reads nothing from disk and never renews.
+func NoKey(expires civil.Date) *Holder { return &Holder{k: Key{Expires: expires}} }
+
 // Value is the key in use.
 func (h *Holder) Value() string {
 	h.mu.RLock()
@@ -80,6 +84,9 @@ func (h *Holder) Expires() civil.Date {
 // the data directory and then becomes the key in use, for g too. On any
 // error nothing changes.
 func (h *Holder) Renew(ctx context.Context, g Exchanger, k Key) error {
+	if h.path == "" {
+		return errors.New("garminkey: no key to renew")
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return g.UseKey(ctx, k.Value, func() error {
