@@ -26,6 +26,7 @@ var (
 // SnapshotInfo describes a verified snapshot.
 type SnapshotInfo struct {
 	SchemaVersion string // newest applied migration, e.g. "0008_deliveries"
+	Demo          bool   // the snapshot is of a demo database (MarkDemo)
 }
 
 // SnapshotTo writes a consistent copy of the database to path (VACUUM INTO).
@@ -89,7 +90,11 @@ func VerifySnapshot(ctx context.Context, path string) (SnapshotInfo, error) {
 	if !v.Valid {
 		return SnapshotInfo{}, fmt.Errorf("%w: no migrations applied", ErrNotCoachdDB)
 	}
-	return SnapshotInfo{SchemaVersion: v.String}, nil
+	demo, err := readDemo(ctx, sdb)
+	if err != nil {
+		return SnapshotInfo{}, snapshotErr(err)
+	}
+	return SnapshotInfo{SchemaVersion: v.String, Demo: demo}, nil
 }
 
 // integrityCheck runs PRAGMA integrity_check, which returns the single row

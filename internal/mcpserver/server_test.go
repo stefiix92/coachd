@@ -569,7 +569,7 @@ func TestToolCallTelemetry(t *testing.T) {
 	}
 	attrs := map[string]string{}
 	for _, kv := range spans[0].Attributes() {
-		attrs[string(kv.Key)] = kv.Value.Emit()
+		attrs[string(kv.Key)] = kv.Value.String()
 	}
 	want := map[string]string{"tool": "get_summaries", "outcome": "ok", "lane": "private", "client": "claude"}
 	if len(attrs) != len(want) {
@@ -611,7 +611,7 @@ func checkMetricAttrs(t *testing.T, kvs []attribute.KeyValue) {
 	t.Helper()
 	got := map[string]string{}
 	for _, kv := range kvs {
-		got[string(kv.Key)] = kv.Value.Emit()
+		got[string(kv.Key)] = kv.Value.String()
 	}
 	want := map[string]string{"tool": "get_summaries", "client": "claude", "outcome": "ok"}
 	if len(got) != len(want) {
@@ -739,11 +739,11 @@ func wantQuietToolError(t *testing.T, e *env, outcome string, values ...string) 
 	got := ""
 	for _, kv := range sp.Attributes() {
 		if kv.Key == "outcome" {
-			got = kv.Value.Emit()
+			got = kv.Value.String()
 		}
 		for _, v := range values {
-			if strings.Contains(kv.Value.Emit(), v) {
-				t.Errorf("span attribute %s carries an argument value: %q", kv.Key, kv.Value.Emit())
+			if strings.Contains(kv.Value.String(), v) {
+				t.Errorf("span attribute %s carries an argument value: %q", kv.Key, kv.Value.String())
 			}
 		}
 	}
@@ -770,7 +770,7 @@ func callMetrics(t *testing.T, e *env) (calls, durations map[string]int) {
 		t.Fatal(err)
 	}
 	key := func(s attribute.Set) string {
-		v := func(k string) string { x, _ := s.Value(attribute.Key(k)); return x.Emit() }
+		v := func(k string) string { x, _ := s.Value(attribute.Key(k)); return x.String() }
 		if s.Len() != 3 {
 			t.Fatalf("metric attributes %v", s.ToSlice())
 		}

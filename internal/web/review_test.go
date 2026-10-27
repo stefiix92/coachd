@@ -106,7 +106,7 @@ func TestReviewApproveAll(t *testing.T) {
 	}
 	attrs := map[string]string{}
 	for _, kv := range spans[0].Attributes() {
-		attrs[string(kv.Key)] = kv.Value.Emit()
+		attrs[string(kv.Key)] = kv.Value.String()
 	}
 	if attrs["count"] != "3" || attrs["outcome"] != "approved" || attrs["proposal_id"] != "" {
 		t.Fatalf("span attributes = %v", attrs)

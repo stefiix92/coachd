@@ -110,6 +110,17 @@ func TestRenewWriteFailureKeepsKey(t *testing.T) {
 	}
 }
 
+func TestNoKey(t *testing.T) {
+	h := NoKey(date("2099-12-31"))
+	if h.Value() != "" || h.Expires() != date("2099-12-31") {
+		t.Fatalf("key = %q until %v", h.Value(), h.Expires())
+	}
+	g := &fakeGarmin{ok: map[string]bool{"new-key": true}}
+	if err := h.Renew(context.Background(), g, Key{Value: "new-key", Expires: date("2027-01-01")}); err == nil || g.used != "" {
+		t.Fatalf("renewed a keyless holder: %v, client uses %q", err, g.used)
+	}
+}
+
 // The configured key wins when it expires later, or on the same day: the
 // runner went back to editing the secret file.
 func TestLoadLaterExpiryWins(t *testing.T) {

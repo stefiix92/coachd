@@ -37,6 +37,9 @@ var (
 	ErrManifestMismatch = errors.New("backup: manifest does not match the snapshot")
 	ErrExists           = errors.New("backup: a backup with this timestamp already exists")
 	ErrSnapshotHasWAL   = errors.New("backup: the snapshot has a non-empty -wal file next to it")
+	// ErrDemoMismatch refuses a restore that would put demo data where the
+	// runner's data is, or the reverse (docs/design/demo-mode.md).
+	ErrDemoMismatch = errors.New("backup: demo data and real data never replace each other")
 )
 
 // FileEntry is one file in a manifest.

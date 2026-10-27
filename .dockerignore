@@ -1,6 +1,7 @@
 .git
 .github
 .superpowers
+.claude
 .secrets
 secrets
 deploy/secrets

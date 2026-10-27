@@ -3,12 +3,13 @@
 [![CI](https://github.com/stefiix92/coachd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stefiix92/coachd/actions/workflows/ci.yml?query=branch%3Amain)
 [![Latest release](https://img.shields.io/github/v/release/stefiix92/coachd)](https://github.com/stefiix92/coachd/releases/latest)
 [![Docs](https://img.shields.io/badge/docs-stefiix92.github.io%2Fcoachd-blue)](https://stefiix92.github.io/coachd/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/stefiix92/coachd/badge)](https://scorecard.dev/viewer/?uri=github.com/stefiix92/coachd)
 
 > A self-hosted gateway between your AI coach and your Garmin watch. It serves your Garmin data to any AI agent and puts the workout you agreed on onto your watch, but only after you approve it.
 
-One signed Docker image, one instance per runner. Your Garmin key and health data stay on your server.
+One signed Docker image, one instance per runner. Your Garmin key and health data stay on your server ([data and privacy](https://stefiix92.github.io/coachd/docs/reference/privacy/)).
 
-**📖 Documentation: [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/)**: [install](https://stefiix92.github.io/coachd/docs/install/), [connect an agent](https://stefiix92.github.io/coachd/docs/agents/), [watch app](https://stefiix92.github.io/coachd/docs/watch/), [MCP tools](https://stefiix92.github.io/coachd/docs/agents/tools/).
+**📖 Documentation: [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/)**: [install](https://stefiix92.github.io/coachd/docs/install/), [connect an agent](https://stefiix92.github.io/coachd/docs/agents/), [watch app](https://stefiix92.github.io/coachd/docs/watch/), [MCP tools](https://stefiix92.github.io/coachd/docs/agents/tools/), [FAQ](https://stefiix92.github.io/coachd/docs/faq/), [troubleshooting](https://stefiix92.github.io/coachd/docs/operations/troubleshooting/).
 
 **Status:** early and built by one runner for their own training, but it works end to end: Garmin data in, MCP out, passkey-approved workouts to the watch. Expect rough edges. While the version is 0.x, a minor release may change configuration or behaviour, so read the [changelog](CHANGELOG.md) before upgrading.
 
@@ -31,6 +32,15 @@ coachd is a **gateway, not a coach**: the AI agent and you decide the training; 
 
 ## What it does
 
+```mermaid
+flowchart LR
+  garmin["Garmin Connect<br/>Personal API"] -->|"activities, FIT files,<br/>sleep, HRV, ..."| coachd[("coachd")]
+  agent["AI agent<br/>(Claude, ChatGPT, ...)"] <-->|"MCP: data,<br/>goal, notes, proposals"| coachd
+  coachd -->|"ntfy: workout ready"| phone["You, on the<br/>approval page"]
+  phone -->|"approve with passkey"| coachd
+  coachd -->|"approved workouts"| watch["Watch app,<br/>FIT or Zwift file"]
+```
+
 1. **Data in.** Activities with their original FIT files, sleep, HRV, resting HR, Body Battery and more, from the official [Garmin Connect Personal API](https://developer.garmin.com/gc-developer-program/personal/), plus simple totals. Numbers, never verdicts.
 2. **Context.** The goal the agent sets and a few durable notes, so any agent or new chat starts informed.
 3. **Workout out.** The agent proposes a structured workout; you approve it with a passkey; coachd delivers it through the [Connect IQ watch app](https://apps.garmin.com/apps/14f05551-a935-44d7-9227-6b4762e4b341), as a FIT file, or as a Zwift workout.
@@ -39,7 +49,7 @@ coachd is a **gateway, not a coach**: the AI agent and you decide the training; 
 
 There is no chat UI and no built-in LLM. You talk to Claude (or ChatGPT, Gemini, Cursor, Open WebUI or a local model), and the agent calls coachd over **MCP**. No MCP tool can approve, deliver or withdraw a workout: only you can, with your passkey.
 
-Read [how it works](https://stefiix92.github.io/coachd/docs/how-it-works/), then [install it](https://stefiix92.github.io/coachd/docs/install/). You need your own Garmin Connect Personal API key and a Docker host.
+Read [how it works](https://stefiix92.github.io/coachd/docs/how-it-works/) and [an example week](https://stefiix92.github.io/coachd/docs/agents/example/), then [install it](https://stefiix92.github.io/coachd/docs/install/). You need your own Garmin Connect Personal API key and a Docker host. See also [compatibility](https://stefiix92.github.io/coachd/docs/reference/compatibility/) and [how coachd compares](https://stefiix92.github.io/coachd/docs/comparison/).
 
 ## Stack
 
@@ -49,7 +59,7 @@ Design records are in [`docs/design/`](docs/design/), starting with [`coachd-des
 
 ## Roadmap
 
-Next: a smoother first-time install, and wider live testing of AI clients against built-in mode. Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
+Next: a smoother first-time install, and wider live testing of AI clients against built-in mode. Planned work is tracked in [roadmap issues](https://github.com/stefiix92/coachd/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap); smaller ones are labelled [good first issue](https://github.com/stefiix92/coachd/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Disclaimer
 

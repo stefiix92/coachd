@@ -60,3 +60,7 @@ Other clients take the same URL and header. Manage tokens with [`token list` and
 | write | read, plus coachd's local writes: `request_sync`, the goal and notes, `propose_workout`, `cancel_proposal`, `send_message` |
 
 In built-in mode the consent page sets the scope; in Access mode an app gets both. No scope can approve or deliver a workout. See [MCP tools](tools/).
+
+## Next
+
+See an [example week](/docs/agents/example/) of a runner and an agent, and give your agent the [starter instructions](/docs/agents/instructions/).

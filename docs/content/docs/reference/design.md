@@ -1,6 +1,6 @@
 ---
 title: Design records
-weight: 4
+weight: 6
 ---
 
 coachd's behaviour is decided in design records, kept in the repository under [`docs/design/`](https://github.com/stefiix92/coachd/tree/main/docs/design). Read the relevant one before changing behaviour. In them, **[owner]** marks an owner decision, **[call]** the designer's call and **[builder]** a choice left to the implementer.

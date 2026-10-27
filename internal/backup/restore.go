@@ -93,6 +93,9 @@ func Restore(ctx context.Context, dataDir, snapshot string, now time.Time) (Rest
 	if err := checkManifest(dataDir, snapshot, &res); err != nil {
 		return RestoreResult{}, err
 	}
+	if err := checkDemo(ctx, live, info.Demo); err != nil {
+		return RestoreResult{}, err
+	}
 
 	// Checks of the snapshot end here. Reading the previous coachd.db below
 	// may checkpoint it; the swap after that replaces it.
@@ -153,6 +156,23 @@ func Restore(ctx context.Context, dataDir, snapshot string, now time.Time) (Rest
 		}
 	}
 	return res, nil
+}
+
+// checkDemo refuses a snapshot whose demo mark differs from the previous
+// coachd.db's. Reading that database may checkpoint it. One that is missing,
+// empty or unreadable is not checked: serve checks the mark again at start.
+func checkDemo(ctx context.Context, live string, snapshotDemo bool) error {
+	if fi, err := os.Stat(live); err != nil || fi.Size() == 0 {
+		return nil
+	}
+	demo, err := store.ReadDemo(ctx, live)
+	switch {
+	case err != nil || demo == snapshotDemo:
+		return nil
+	case snapshotDemo:
+		return fmt.Errorf("%w: the snapshot holds demo data and coachd.db does not; restore it into a demo data directory", ErrDemoMismatch)
+	}
+	return fmt.Errorf("%w: coachd.db holds demo data and the snapshot does not; restore it into its own data directory", ErrDemoMismatch)
 }
 
 // checkManifest compares the manifest next to snapshot, if there is one, with

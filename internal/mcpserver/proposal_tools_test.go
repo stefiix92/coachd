@@ -697,13 +697,13 @@ func TestAgentTextNeverInTelemetry(t *testing.T) {
 	}
 	for _, sp := range e.spans.Ended() {
 		for _, kv := range sp.Attributes() {
-			if strings.Contains(kv.Value.Emit(), canary) {
+			if strings.Contains(kv.Value.String(), canary) {
 				t.Errorf("span %s attribute %s carries agent text", sp.Name(), kv.Key)
 			}
 		}
 		for _, ev := range sp.Events() {
 			for _, kv := range ev.Attributes {
-				if strings.Contains(kv.Value.Emit(), canary) || strings.Contains(ev.Name, canary) {
+				if strings.Contains(kv.Value.String(), canary) || strings.Contains(ev.Name, canary) {
 					t.Errorf("span %s event %s carries agent text", sp.Name(), ev.Name)
 				}
 			}

@@ -1,9 +1,13 @@
 name: ci
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,9 +20,31 @@ jobs:
           go-version: '1.27'
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
-      - run: go test -race ./...
-      # Pinned: Dependabot cannot bump `go run` versions, so update this by hand.
+      # Pinned: Dependabot cannot bump `go run` versions, so update these by
+      # hand, together with the Makefile.
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - run: go test -race -coverprofile=cover.out ./...
+      - name: Coverage summary
+        run: |
+          {
+            echo '### Test coverage'
+            echo
+            go tool cover -func=cover.out | tail -n 1
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+      # actionlint also runs shellcheck (preinstalled on the runner) on run: blocks.
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: shellcheck
+        run: git ls-files -z '*.sh' .githooks | xargs -0 shellcheck --severity=warning
   image:
     runs-on: ubuntu-latest
     steps:

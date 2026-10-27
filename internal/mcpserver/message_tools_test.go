@@ -26,7 +26,7 @@ func TestSendMessage(t *testing.T) {
 	}
 	for _, sp := range e.spans.Ended() {
 		for _, kv := range sp.Attributes() {
-			if strings.Contains(kv.Value.Emit(), "canary-7f3a") {
+			if strings.Contains(kv.Value.String(), "canary-7f3a") {
 				t.Errorf("span %s attribute %s carries message text", sp.Name(), kv.Key)
 			}
 		}

@@ -11,6 +11,7 @@ Settings live in `deploy/.env` (from [`.env.example`](https://github.com/stefiix
 |---|---|---|
 | `COACHD_TIMEZONE` | required | Your timezone, for example `Europe/Bratislava`. Days, weeks and workout dates follow it. |
 | `COACHD_GARMIN_KEY_EXPIRES` | required | Expiry date of the Garmin key in `secrets/garmin_api_key` (`YYYY-MM-DD`); coachd warns before it. A key [renewed on the page](/docs/install/garmin-key/#renew-the-key) applies if it expires later. |
+| `COACHD_DEMO` | `false` | `true` runs on made-up Garmin data, with no Garmin key: [Try it with demo data](/docs/install/demo/). Leave the Garmin key settings unset with it. A demo data directory and a real one never mix: each mode refuses the other's. |
 | `COACHD_IMAGE` | `coachd:local` | The image to run, for example `ghcr.io/stefiix92/coachd:<version>@sha256:<digest>`. Empty builds and runs `coachd:local`. See [Get the image](/docs/install/image/). |
 | `COACHD_VERSION` | `dev` | The version string baked into the image by `docker compose build`. |
 

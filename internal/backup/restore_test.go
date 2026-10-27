@@ -480,7 +480,7 @@ func TestRestoreOlderSchema(t *testing.T) {
 	}
 	if _, err := odb.Exec(`ALTER TABLE activities DROP COLUMN perceived_rpe; ALTER TABLE activities DROP COLUMN perceived_feel;
 		ALTER TABLE notes DROP COLUMN valid_until; ALTER TABLE activity_detail DROP COLUMN workout_fp;
-		ALTER TABLE activity_detail DROP COLUMN workout_json; DROP TABLE messages;
+		ALTER TABLE activity_detail DROP COLUMN workout_json; DROP TABLE messages; DROP TABLE instance;
 		DROP TABLE oauth_tokens; DROP TABLE oauth_codes; DROP TABLE oauth_grants; DROP TABLE oauth_clients;
 		DROP TABLE deliveries; DROP TABLE device_pairings; DROP TABLE devices;
 		DELETE FROM schema_migrations WHERE version >= '0007'`); err != nil {
@@ -664,5 +664,62 @@ func TestRestoreRollbackReportsStrandedWAL(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "coachd.db")); err != nil {
 		t.Errorf("coachd.db not moved back: %v", err)
+	}
+}
+
+// Demo data and the runner's data never replace each other; a demo backup
+// restores into a demo or an empty data directory.
+func TestRestoreKeepsDemoAndRealApart(t *testing.T) {
+	ctx := context.Background()
+	demoBackup := func(t *testing.T) string {
+		t.Helper()
+		dir, db := setup(t)
+		if err := db.MarkDemo(ctx); err != nil {
+			t.Fatal(err)
+		}
+		res, err := Run(ctx, db, dir, "v-test", t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Snapshot
+	}
+
+	// A demo snapshot into a real data directory.
+	realDir, _, live := backedUp(t)
+	if _, err := Restore(ctx, realDir, demoBackup(t), restoreAt); !errors.Is(err, ErrDemoMismatch) {
+		t.Fatalf("demo into real: err = %v", err)
+	}
+	assertUntouched(t, realDir, live)
+
+	// A real snapshot into a demo data directory.
+	dir, res, _ := backedUp(t)
+	db, err := store.Open(ctx, filepath.Join(dir, "coachd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkDemo(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	live, err = os.ReadFile(filepath.Join(dir, "coachd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(ctx, dir, res.Snapshot, restoreAt); !errors.Is(err, ErrDemoMismatch) {
+		t.Fatalf("real into demo: err = %v", err)
+	}
+	assertUntouched(t, dir, live)
+
+	// A demo snapshot into an empty directory, and into a demo one.
+	empty := t.TempDir()
+	snap := demoBackup(t)
+	if _, err := Restore(ctx, empty, snap, restoreAt); err != nil {
+		t.Fatalf("demo into empty: %v", err)
+	}
+	if demo, err := store.ReadDemo(ctx, filepath.Join(empty, "coachd.db")); err != nil || !demo {
+		t.Fatalf("restored database not demo: %v %v", demo, err)
+	}
+	if _, err := Restore(ctx, empty, snap, restoreAt.Add(time.Hour)); err != nil {
+		t.Fatalf("demo into demo: %v", err)
 	}
 }

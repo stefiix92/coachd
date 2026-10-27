@@ -514,8 +514,7 @@ func TestConsentBucket(t *testing.T) {
 // 2 passkey_failure rows; the first failure of the next hour first writes an
 // audit_suppressed row with the count. The metric counts every failure.
 func TestRecordFailureSampled(t *testing.T) {
-	var ts *testServer
-	ts = builtinServer(t, func(d *Deps) { d.Sampler = auth.NewAuditSampler(2, d.Now) })
+	ts := builtinServer(t, func(d *Deps) { d.Sampler = auth.NewAuditSampler(2, d.Now) })
 	for i := range 5 {
 		if rec := ts.do(t, "POST", "/login/finish", badAssertion, nil); rec.Code != http.StatusUnauthorized {
 			t.Fatalf("finish %d: status %d", i+1, rec.Code)

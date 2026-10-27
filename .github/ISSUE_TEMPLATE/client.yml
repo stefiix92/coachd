@@ -1,0 +1,51 @@
+name: AI client report
+description: Tell us whether an AI client works with coachd.
+labels: [client-report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports fill in the [compatibility table](https://stefiix92.github.io/coachd/docs/reference/compatibility/). Working setups are as useful as broken ones.
+        **Never paste tokens, `.env` contents or health data.** Redact them.
+  - type: input
+    id: client
+    attributes:
+      label: AI client and version
+      placeholder: e.g. Claude Desktop 1.4, ChatGPT web, Cursor 2.1, Open WebUI 0.7
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: coachd version
+    validations:
+      required: true
+  - type: dropdown
+    id: lane
+    attributes:
+      label: How the client connects
+      options:
+        - "Public lane: Access mode (Cloudflare)"
+        - "Public lane: built-in auth"
+        - "Private lane: Tailscale and a token"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options: [Works, Works with workarounds, Does not work]
+    validations:
+      required: true
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: What you tried
+      options:
+        - label: Sign-in or token
+        - label: Read tools (e.g. get_status, list_activities)
+        - label: Write tools (e.g. propose_workout)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes, workarounds or errors (redacted)

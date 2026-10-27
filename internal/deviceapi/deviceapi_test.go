@@ -406,7 +406,7 @@ func (ts *testServer) spansNamed(name string) []sdktrace.ReadOnlySpan {
 func spanAttr(s sdktrace.ReadOnlySpan, key string) string {
 	for _, kv := range s.Attributes() {
 		if string(kv.Key) == key {
-			return kv.Value.Emit()
+			return kv.Value.String()
 		}
 	}
 	return ""
@@ -582,7 +582,7 @@ func TestPairingLogsNoSecrets(t *testing.T) {
 			kvs = append(kvs, e.Attributes...)
 		}
 		for _, kv := range kvs {
-			dump.WriteString(" " + string(kv.Key) + "=" + kv.Value.Emit())
+			dump.WriteString(" " + string(kv.Key) + "=" + kv.Value.String())
 		}
 	}
 	out := dump.String()
