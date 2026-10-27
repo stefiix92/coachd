@@ -18,13 +18,6 @@ One signed Docker image, one instance per runner. Your Garmin key and health dat
 
 **Status:** early and built by one runner for their own training, but it works end to end: Garmin data in, MCP out, passkey-approved workouts to the watch. Expect rough edges. While the version is 0.x, a minor release may change configuration or behaviour, so read the [changelog](CHANGELOG.md) before upgrading.
 
-<p align="center">
-  <img src="docs/images/approve.png" width="250" alt="Approval page on a phone: an agent-proposed threshold workout with its steps, the agent's reason, a warning, and the Approve with passkey button">
-  <img src="docs/images/consent.png" width="250" alt="Connect an app page: Claude asks for access, showing its web address, where the browser returns and what the app may do">
-  <img src="docs/images/apps.png" width="250" alt="Connected apps page on a phone: each app with its access, when it connected and a Revoke button">
-</p>
-<p align="center"><sub>Approving a workout, connecting an app (built-in auth) and the connected apps, on a phone. Fake data from a test instance.</sub></p>
-
 ---
 
 ## Why
@@ -53,6 +46,13 @@ flowchart LR
 5. **Planned vs actual.** The executed steps of each workout, linked to the workout coachd delivered.
 
 There is no chat UI and no built-in LLM. You talk to Claude (or ChatGPT, Gemini, Cursor, Open WebUI or a local model), and the agent calls coachd over **MCP**. No MCP tool can approve, deliver or withdraw a workout: only you can, with your passkey.
+
+<p align="center">
+  <img src="docs/images/approve.png" width="250" alt="Approval page on a phone: an agent-proposed threshold workout with its steps, the agent's reason, a warning, and the Approve with passkey button">
+  <img src="docs/images/consent.png" width="250" alt="Connect an app page: Claude asks for access, showing its web address, where the browser returns and what the app may do">
+  <img src="docs/images/apps.png" width="250" alt="Connected apps page on a phone: each app with its access, when it connected and a Revoke button">
+</p>
+<p align="center"><sub>The real pages, on a phone: approving a workout, connecting an app (built-in auth) and the connected apps. Fake data from a test instance.</sub></p>
 
 Read [how it works](https://stefiix92.github.io/coachd/docs/how-it-works/) and [an example week](https://stefiix92.github.io/coachd/docs/agents/example/), then [install it](https://stefiix92.github.io/coachd/docs/install/). You need your own Garmin Connect Personal API key and a Docker host. See also [compatibility](https://stefiix92.github.io/coachd/docs/reference/compatibility/) and [how coachd compares](https://stefiix92.github.io/coachd/docs/comparison/).
 
