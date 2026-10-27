@@ -20,10 +20,9 @@ func floorDiv(a, n int) int { return (a - mod(a, n)) / n }
 
 // Activity IDs encode the date and the slot (the activity's index that day),
 // far above the IDs Garmin has issued so far.
-const (
-	idBase      int64 = 90_000_000_000
-	slotsPerDay       = 10
-)
+const idBase int64 = 90_000_000_000
+
+const slotsPerDay = 10
 
 func activityID(d civil.Date, slot int) int64 {
 	return idBase + int64(dayNum(d))*slotsPerDay + int64(slot)
