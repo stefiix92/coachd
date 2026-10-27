@@ -16,7 +16,7 @@ docker run -d --name coachd-demo \
   ghcr.io/stefiix92/coachd:<version>
 ```
 
-Take `<version>` from the [releases](https://github.com/stefiix92/coachd/releases): demo mode needs one newer than 0.5.0. Set your own timezone. Port 8081 is the private lane, published on this machine only.
+Take `<version>` from the [releases](https://github.com/stefiix92/coachd/releases): demo mode needs 0.5.1 or later. Set your own timezone. Port 8081 is the private lane, published on this machine only.
 
 coachd fills in 26 weeks of a made-up runner: runs with a weekly long run, strength, indoor rides, sleep, HRV and weight. The last two weeks arrive at once, the rest within a few minutes.
 
