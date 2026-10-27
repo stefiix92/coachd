@@ -1,0 +1,122 @@
+# Builds the Connect IQ watch app for every product in watch/manifest.xml and
+# runs its (:test) suite in the Linux simulator under Xvfb. The SDK comes from
+# Garmin on every run; the device files need a Garmin account (the
+# GARMIN_USERNAME and GARMIN_PASSWORD secrets) and are cached between runs.
+# With neither the secrets nor a cache, as in forks, the job passes with a
+# notice instead.
+name: watch
+on:
+  push:
+    branches: [main]
+    paths: ['watch/**', '.github/workflows/watch.yml']
+  pull_request:
+    paths: ['watch/**', '.github/workflows/watch.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: watch-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The Linux simulator links webkit2gtk-4.0, which Ubuntu 22.04 is the last
+    # Ubuntu to ship.
+    container: ubuntu:22.04@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CIQ_SDK: /opt/ciq-sdk
+      # Simulator test devices: a fēnix 7 (glance, notifications) and the
+      # smallest screen in the manifest.
+      TEST_DEVICES: fenix7spro fr55
+    steps:
+      - name: Packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update -q
+          # monkeyc is a Java 17 program; the simulator needs webkit2gtk-4.0,
+          # libusb, libSM and a display (Xvfb).
+          apt-get install -y -q --no-install-recommends ca-certificates curl git unzip openssl \
+            openjdk-17-jre-headless libwebkit2gtk-4.0-37 libusb-1.0-0 libsm6 xvfb
+          # GitHub sets HOME=/github/home in containers, but monkeyc and the
+          # simulator read ~/.Garmin from root's home directory.
+          mkdir -p "$HOME/.Garmin/ConnectIQ"
+          [[ "$HOME" == /root ]] || ln -sfn "$HOME/.Garmin" /root/.Garmin
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Device file cache key
+        id: key
+        run: echo "key=ciq-devices-$(sha256sum watch/manifest.xml | cut -c1-16)-${TEST_DEVICES// /-}" >> "$GITHUB_OUTPUT"
+      # Only the device files and fonts: never ~/.Garmin/ConnectIQ as a
+      # whole, which holds the Garmin login token while ci-setup.sh runs.
+      - id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.Garmin/ConnectIQ/Devices
+            ~/.Garmin/ConnectIQ/Fonts
+          key: ${{ steps.key.outputs.key }}
+      - name: Device files
+        id: devices
+        env:
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+        run: |
+          if [[ "$CACHE_HIT" == true ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif [[ -z "$GARMIN_USERNAME" || -z "$GARMIN_PASSWORD" ]]; then
+            echo "::notice title=Watch app not built::No cached Connect IQ device files and no GARMIN_USERNAME and GARMIN_PASSWORD secrets to download them, so the build and the simulator tests were skipped."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            read -ra fonts <<< "$TEST_DEVICES"
+            watch/ci-setup.sh devices "${fonts[@]}"
+            printf 'ready=true\ndownloaded=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.devices.outputs.downloaded == 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.Garmin/ConnectIQ/Devices
+            ~/.Garmin/ConnectIQ/Fonts
+          key: ${{ steps.key.outputs.key }}
+      - name: Connect IQ SDK
+        if: steps.devices.outputs.ready == 'true'
+        run: watch/ci-setup.sh sdk
+      # The Store package of every product, signed with a key build.sh
+      # generates in the job: .secrets/ is not in the checkout.
+      - name: Build
+        if: steps.devices.outputs.ready == 'true'
+        run: watch/build.sh store
+      - name: Simulator tests
+        if: steps.devices.outputs.ready == 'true'
+        timeout-minutes: 15
+        env:
+          SIMTEST_TIMEOUT: 120 # per device; a run takes about 20 s
+        run: |
+          export DISPLAY=:99
+          Xvfb "$DISPLAY" -screen 0 1280x1024x24 &
+          for _ in $(seq 30); do [[ -S /tmp/.X11-unix/X99 ]] && break; sleep 1; done
+          sim=""
+          start_simulator() {
+            if [[ -n "$sim" ]]; then kill -KILL "$sim" 2> /dev/null; wait "$sim" 2> /dev/null || true; fi
+            rm -f "$HOME"/Sim-* # its single-instance lock
+            "$CIQ_SDK/bin/simulator" > /tmp/simulator.log 2>&1 &
+            sim=$!
+            # It takes monkeydo's connection on port 1234 once it is up.
+            for _ in $(seq 60); do (: < /dev/tcp/127.0.0.1/1234) 2> /dev/null && return; sleep 1; done
+          }
+          read -ra devices <<< "$TEST_DEVICES"
+          start_simulator
+          # The simulator has once hung on a run that passed on the next try:
+          # retry once with a fresh one, visibly.
+          if ! watch/simtest.sh "${devices[@]}"; then
+            echo "::warning title=Simulator tests retried::A simulator run failed or hung; retrying once with a fresh simulator."
+            start_simulator
+            watch/simtest.sh "${devices[@]}"
+          fi

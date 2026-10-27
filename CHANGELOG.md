@@ -9,9 +9,9 @@ The release workflow publishes the section whose heading matches the pushed tag 
 ### Added
 
 - **Demo mode** (`docs/design/demo-mode.md`): `COACHD_DEMO=true` runs `serve` on made-up, deterministic Garmin data, with no Garmin key, so coachd can be tried with an agent in a few minutes ([Try it with demo data](https://stefiix92.github.io/coachd/docs/install/demo/)). About 26 weeks of a plausible runner's activities, with real FIT files, plus sleep, HRV, resting heart rate, Body Battery and weight. A new migration marks a demo data directory: demo mode refuses a real one, a real coachd refuses a demo one, and restore refuses to swap one for the other.
-
 - **Documentation site** at [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/): install, agents, workouts, the watch app, operations and reference, with search, built with Hugo and the Hextra theme from `docs/` and published to GitHub Pages by the new `docs` workflow. Every page is also served as Markdown, with an `llms.txt` index, for agents reading the docs.
 - **New documentation pages:** troubleshooting, FAQ, compatibility (AI clients, watches and phones), data and privacy, coachd compared with alternatives, an example week of a runner and an agent, and starter instructions for your agent. The README gains the overview diagram.
+- **Watch app CI:** the new `watch` workflow builds the watch app for every supported watch and runs its simulator tests on Linux; with a `CIQ_DEVELOPER_KEY` secret, releases also attach the Connect IQ Store package. It needs the `GARMIN_USERNAME` and `GARMIN_PASSWORD` secrets for Garmin's device files and skips with a notice without them.
 
 ### Changed
 

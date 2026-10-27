@@ -96,3 +96,39 @@ jobs:
           mv server.json.new server.json
           go run "$PUBLISHER" login github-oidc
           go run "$PUBLISHER" publish
+  # The watch app's Connect IQ Store package (the public app, watch/bin/coachd.iq),
+  # attached to the release. Only when the CIQ_DEVELOPER_KEY secret (the
+  # developer key, base64 of its DER file) is set; it then also needs
+  # GARMIN_USERNAME and GARMIN_PASSWORD for the device files.
+  watch:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach to the GitHub release
+    env:
+      HAS_KEY: ${{ secrets.CIQ_DEVELOPER_KEY != '' }}
+    steps:
+      - if: env.HAS_KEY == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Store package
+        if: env.HAS_KEY == 'true'
+        env:
+          CIQ_DEVELOPER_KEY: ${{ secrets.CIQ_DEVELOPER_KEY }}
+          GARMIN_USERNAME: ${{ secrets.GARMIN_USERNAME }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          CIQ_SDK: ${{ runner.temp }}/ciq-sdk
+        run: |
+          export PATH="$JAVA_HOME_17_X64/bin:$PATH" # monkeyc runs on Java 17
+          watch/ci-setup.sh devices
+          watch/ci-setup.sh sdk
+          trap 'rm -f .secrets/ciq-developer.der' EXIT
+          (umask 077 && mkdir -p .secrets && printf '%s' "$CIQ_DEVELOPER_KEY" | base64 -d > .secrets/ciq-developer.der)
+          watch/build.sh store
+      - name: Attach to the release
+        if: env.HAS_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" watch/bin/coachd.iq

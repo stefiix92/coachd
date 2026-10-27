@@ -25,7 +25,9 @@
 # CIQ_DEVICE picks the device of a sideload or test build: any product in
 # manifest.xml, default fenix7spro. A test build falls back to fenix6pro when
 # the fenix7spro device file is missing. Store builds target every product
-# and need all their device files (Connect IQ SDK Manager).
+# and need all their device files (Connect IQ SDK Manager). monkeyc reads them
+# from ~/Library/Application Support/Garmin/ConnectIQ/Devices on macOS and
+# ~/.Garmin/ConnectIQ/Devices on Linux.
 # The developer key is <repo>/.secrets/ciq-developer.der; it is created on the
 # first build and signs every later build, Store uploads included, so keep it.
 set -euo pipefail
@@ -34,7 +36,11 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 sdk="${CIQ_SDK:-$HOME/.cache/connectiq/sdk-9.3.0}"
 key="$root/.secrets/ciq-developer.der"
-devices="$HOME/Library/Application Support/Garmin/ConnectIQ/Devices"
+if [[ "$(uname)" == Darwin ]]; then
+	devices="$HOME/Library/Application Support/Garmin/ConnectIQ/Devices"
+else
+	devices="$HOME/.Garmin/ConnectIQ/Devices"
+fi
 dev_id="8643d4638c924746b3031c79d74c19bb"
 
 die() {

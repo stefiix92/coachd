@@ -7,9 +7,9 @@ Building the watch app yourself is for development and for the Store uploads; ru
 
 ## Prerequisites
 
-- **Connect IQ SDK 9.3.0** unpacked at `~/.cache/connectiq/sdk-9.3.0`, or point `CIQ_SDK` at another SDK directory, such as one the SDK Manager installed under `~/Library/Application Support/Garmin/ConnectIQ/Sdks/`. The builds use `$CIQ_SDK/bin/monkeyc`, which runs from the Linux or the macOS SDK alike; the simulator (needed only for the tests) runs only from the macOS SDK.
+- **Connect IQ SDK 9.3.0** unpacked at `~/.cache/connectiq/sdk-9.3.0`, or point `CIQ_SDK` at another SDK directory, such as one the SDK Manager installed under `~/Library/Application Support/Garmin/ConnectIQ/Sdks/`. The builds use `$CIQ_SDK/bin/monkeyc`, which runs from the Linux or the macOS SDK alike. The simulator (needed only for the tests) runs from the macOS SDK, or from the Linux SDK on Ubuntu 22.04, the last release with the `webkit2gtk-4.0` it links.
 - **Java 17** on `PATH` (monkeyc is a Java program), for example `brew install openjdk@17` and `export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"`.
-- **Device files.** They come from the Connect IQ SDK Manager and need a Garmin developer login: sign in and download the devices; they land in `~/Library/Application Support/Garmin/ConnectIQ/Devices/`. A sideload or test build needs its one device (default `fenix7spro`; a test build falls back to `fenix6pro`). A Store build needs every device in `manifest.xml` and lists the missing ones.
+- **Device files.** They come from the Connect IQ SDK Manager and need a Garmin developer login: sign in and download the devices; they land in `~/Library/Application Support/Garmin/ConnectIQ/Devices/` (`~/.Garmin/ConnectIQ/Devices/` on Linux). A sideload or test build needs its one device (default `fenix7spro`; a test build falls back to `fenix6pro`). A Store build needs every device in `manifest.xml` and lists the missing ones.
 
 ## Build
 
@@ -66,13 +66,21 @@ The listing text and the upload checklist (beta first, the public app only after
 
 ## Tests
 
-The `(:test)` suite covers the sync, pairing and URL logic and the formatting, and smoke-tests every screen, the glance and the background notification. It runs only in the Connect IQ simulator, which needs its GUI and the macOS SDK:
+The `(:test)` suite covers the sync, pairing and URL logic and the formatting, and smoke-tests every screen, the glance and the background notification. It runs only in the Connect IQ simulator:
 
 ```bash
 export CIQ_SDK="$HOME/Library/Application Support/Garmin/ConnectIQ/Sdks/<macOS SDK 9.3.0 directory>"
-COACHD_PUBLIC_URL=https://coachd.example.com ./build.sh test
-"$CIQ_SDK/bin/connectiq"                                       # starts the simulator
-"$CIQ_SDK/bin/monkeydo" bin/coachd-test.prg fenix7spro -t      # or the device build.sh printed
+"$CIQ_SDK/bin/connectiq" &             # starts the simulator
+./simtest.sh fenix7spro fenix6pro      # test build and run per device
 ```
 
-The results list the 40 tests and end with `PASSED`; `monkeydo` exits 1 even then, so read the last line. `build.sh test` adds `test/` to the source path; the app build leaves it out.
+`simtest.sh` builds with `build.sh test` for each device, runs the 40 tests with `monkeydo` and fails unless each run ends with `PASSED` (`monkeydo` itself exits 1 even then). `build.sh test` adds `test/` to the source path; the app build leaves it out.
+
+## CI
+
+The `watch` workflow runs on changes under `watch/`: it builds the Store package for every product in `manifest.xml` and runs `simtest.sh` on a fēnix 7S Pro and a Forerunner 55 in the Linux simulator under Xvfb. `ci-setup.sh` downloads the Linux SDK from Garmin on every run; nothing of Garmin's is kept in the repository. The device files need a Garmin account, so set these repository secrets:
+
+- `GARMIN_USERNAME` and `GARMIN_PASSWORD`: a Garmin account without two-step verification, ideally one used only for this. The workflow caches the device files, so it signs in only when the cache is empty; run it once on `main` (Actions, watch, Run workflow) to fill the cache. Without the secrets or a cache, as in forks, it skips the build with a notice.
+- `CIQ_DEVELOPER_KEY` (optional), the developer key: `base64 < .secrets/ciq-developer.der | gh secret set CIQ_DEVELOPER_KEY`. With it, the release workflow attaches the public Store package `coachd.iq` to each GitHub release. Anyone with write access to the repository can read a secret through a workflow, and this key signs every update of the Store app.
+
+`ci-setup.sh` accepts the Connect IQ SDK License Agreement for that account, but only the version whose hash it pins; when Garmin changes the agreement, CI fails until you read the new one and update the hash.
