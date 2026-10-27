@@ -27,6 +27,13 @@ layout: hextra-home
 
 <div class="hx:mt-6"></div>
 
+<div style="display:flex;justify-content:center">
+  <img src="images/coachd-demo.gif" style="width:100%;max-width:960px;height:auto;border-radius:12px" alt="Animated walkthrough in five steps: Garmin data flows into coachd; an AI agent reads it over MCP and proposes a threshold workout; the runner approves it with a passkey on coachd's page; the watch app syncs it and confirms delivery; after the run, planned versus actual per interval goes back to the agent">
+</div>
+<p style="text-align:center;font-size:0.875rem;opacity:0.7;margin-top:1rem">How it works in 46 seconds. Mocked, with a made-up runner (<a href="docs/agents/example/">an example week</a>).</p>
+
+<div class="hx:mt-12"></div>
+
 {{< hextra/feature-grid >}}
   {{< hextra/feature-card
     title="Your Garmin data, for any agent"

@@ -6,6 +6,10 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ## [Unreleased]
 
+### Added
+
+- **README walkthrough:** an animated GIF of the whole loop (data in, the agent proposes, you approve with a passkey, the watch runs it, the results go back). Mocked with a made-up runner; its source and render script are in `docs/demo/`.
+
 ## [0.5.1] - 2026-10-27
 
 ### Added

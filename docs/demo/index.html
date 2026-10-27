@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>coachd: how it works</title>
+<style>
+:root {
+  --navy: #082c4b; --green: #0bc78f; --bg: #f3f6f9; --surface: #fff; --surface-2: #edf1f5;
+  --muted: #5b6878; --line: #e1e7ee; --agent: #7a3dbf; --agent-bg: #f5f0fc; --agent-edge: #a26ae0;
+  --ok: #17765a; --ok-bg: #dff6ec; --warn: #8a5a00; --orange: #ff8a00;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1280px; height: 720px; overflow: hidden; }
+body { font-family: var(--font); color: var(--navy); background: var(--bg);
+  background-image: radial-gradient(circle at 85% 15%, #e3f7ef 0, transparent 45%), radial-gradient(circle at 10% 90%, #e6edf6 0, transparent 50%); }
+.abs { position: absolute; }
+.scene { position: absolute; inset: 0; }
+
+/* progress */
+.progress { position: absolute; top: 34px; left: 0; right: 0; display: flex; justify-content: center; gap: 10px; }
+.progress span { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #9aa6b4;
+  padding: 6px 14px; border-radius: 99px; }
+.progress span i { width: 22px; height: 22px; border-radius: 50%; background: #dfe5ec; color: #fff; font-style: normal;
+  font-size: 12px; display: grid; place-items: center; }
+.progress span.done { color: var(--muted); }
+.progress span.done i { background: var(--green); }
+.progress span.on { color: var(--navy); background: #fff; box-shadow: 0 2px 10px -4px rgb(8 44 75 / .25); }
+.progress span.on i { background: var(--navy); }
+
+/* captions */
+.cap { position: absolute; left: 88px; top: 210px; width: 430px; }
+.cap .n { font-size: 15px; font-weight: 700; color: var(--ok); letter-spacing: .08em; text-transform: uppercase; }
+.cap h2 { font-size: 44px; line-height: 1.08; margin: 10px 0 18px; letter-spacing: -.02em; }
+.cap p { font-size: 20px; line-height: 1.45; color: var(--muted); }
+.cap p + p { margin-top: 14px; }
+.cap b { color: var(--navy); }
+.stage { position: absolute; left: 560px; top: 100px; width: 660px; height: 580px; }
+
+/* intro, outro */
+.center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.center img { width: 150px; height: 150px; }
+.center h1 { font-size: 72px; letter-spacing: -.03em; margin-top: 10px; }
+.center .tag { font-size: 28px; color: var(--muted); margin-top: 14px; line-height: 1.4; }
+.center .tag b { color: var(--navy); }
+.center .url { margin-top: 30px; font: 600 24px var(--mono); color: var(--ok); background: #fff; padding: 10px 20px; border-radius: 12px; box-shadow: 0 2px 12px -6px rgb(8 44 75 / .3); }
+.center .facts { margin-top: 22px; display: flex; gap: 10px; }
+.center .facts span { font-size: 17px; font-weight: 600; padding: 7px 14px; border-radius: 99px; background: #fff; border: 1px solid var(--line); }
+
+/* scene 1: data flow */
+.node { position: absolute; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 17px; font-weight: 600; text-align: center; }
+.node small { font-weight: 500; color: var(--muted); font-size: 14px; }
+.disc { width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center; background: #fff; box-shadow: 0 6px 24px -10px rgb(8 44 75 / .35); }
+.box { width: 150px; height: 150px; border-radius: 28px; display: grid; place-items: center; background: #fff; box-shadow: 0 10px 30px -10px rgb(8 44 75 / .4); border: 2px solid var(--green); }
+.box img { width: 104px; }
+.wire { position: absolute; height: 3px; background: repeating-linear-gradient(90deg, #c7d2de 0 10px, transparent 10px 18px); }
+.chip { position: absolute; z-index: 1; font-size: 15px; font-weight: 600; padding: 7px 12px; border-radius: 99px; background: var(--navy); color: #fff; white-space: nowrap; }
+.chip.g { background: var(--green); color: var(--navy); }
+.keynote { position: absolute; left: 60px; right: 60px; top: 430px; display: flex; gap: 12px; justify-content: center; }
+.keynote span { font-size: 15px; padding: 8px 14px; border-radius: 10px; background: #fff; border: 1px solid var(--line); color: var(--muted); }
+.keynote b { color: var(--navy); }
+
+/* chat */
+.chat { position: absolute; left: 20px; top: 20px; width: 620px; height: 540px; background: #fff; border-radius: 20px;
+  box-shadow: 0 2px 4px rgb(8 44 75 / .05), 0 18px 44px -18px rgb(8 44 75 / .35); overflow: hidden; }
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); font-weight: 700; font-size: 17px; }
+.chat-head .av { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #a26ae0, #7a3dbf); color: #fff; display: grid; place-items: center; font-size: 15px; }
+.chat-head small { margin-left: auto; font-weight: 500; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.chat-head small::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.msgs { padding: 18px 20px; display: flex; flex-direction: column; gap: 9px; }
+.bubble { max-width: 80%; font-size: 17px; line-height: 1.4; padding: 11px 15px; }
+.bubble.me { align-self: flex-end; background: var(--navy); color: #fff; border-radius: 18px 18px 4px 18px; }
+.bubble.ai { align-self: flex-start; background: var(--surface-2); border-radius: 18px 18px 18px 4px; min-height: 48px; }
+.tool { align-self: flex-start; display: flex; align-items: center; gap: 9px; font: 13.5px var(--mono); padding: 6px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fafcfd; }
+.tool .ic { width: 18px; height: 18px; border-radius: 5px; background: var(--navy); display: grid; place-items: center; }
+.tool .ic img { width: 14px; filter: brightness(0) invert(1); }
+.tool .tn { font-weight: 700; }
+.tool .tr { color: var(--muted); }
+.tool .tr::before { content: "→ "; }
+.tool.hl { border-color: var(--agent-edge); background: var(--agent-bg); }
+.tool.hl .tr { color: var(--agent); font-weight: 600; }
+.caret::after { content: "▍"; color: var(--agent); margin-right: -0.6em; }
+
+/* results card */
+.res { align-self: flex-start; width: 500px; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-size: 14px; }
+.res h4 { font-size: 14px; margin-bottom: 8px; }
+.res h4 span { color: var(--muted); font-weight: 500; }
+.rep { display: grid; grid-template-columns: 48px 74px 1fr 118px; align-items: center; gap: 8px; padding: 4px 0; }
+.rep .bar { height: 10px; border-radius: 6px; background: #e8edf2; overflow: hidden; }
+.rep .bar i { display: block; height: 100%; background: var(--green); width: calc(var(--w) * var(--p, 1)); border-radius: 6px; }
+.rep .pc { color: var(--ok); font-weight: 700; text-align: right; }
+.res .feel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); }
+.res .feel b { color: var(--navy); }
+
+/* phone */
+.phone { position: absolute; left: 70px; top: 0; width: 300px; height: 590px; border-radius: 48px; background: #0b1118; padding: 11px;
+  box-shadow: 0 30px 60px -24px rgb(8 44 75 / .55); }
+.phone::before { content: ""; position: absolute; top: 20px; left: 50%; width: 84px; height: 24px; margin-left: -42px; border-radius: 14px; background: #000; z-index: 5; }
+.screen { position: relative; width: 100%; height: 100%; border-radius: 38px; overflow: hidden; background: var(--bg); }
+.lock { position: absolute; inset: 0; background: linear-gradient(160deg, #0d3b63 0%, #0b6e6b 60%, #0bc78f 130%); color: #fff; text-align: center; }
+.lock .clock { margin-top: 70px; font-size: 68px; font-weight: 300; letter-spacing: -.02em; }
+.lock .date { font-size: 16px; opacity: .85; }
+.notif { position: absolute; left: 10px; right: 10px; top: 200px; background: rgb(255 255 255 / .9); color: var(--navy); border-radius: 20px; padding: 12px 14px; text-align: left; box-shadow: 0 8px 20px -8px rgb(0 0 0 / .4); }
+.notif .top { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.notif .top i { width: 20px; height: 20px; border-radius: 6px; background: #317f6f; color: #fff; font: 700 12px var(--font); font-style: normal; display: grid; place-items: center; }
+.notif .top em { margin-left: auto; font-style: normal; }
+.notif b { display: block; font-size: 14px; margin-top: 6px; }
+.notif p { font-size: 14px; }
+.tap { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: rgb(255 255 255 / .55); border: 2px solid rgb(8 44 75 / .25);
+  transform: scale(calc(.4 + var(--p, 0) * .8)); }
+.page { position: absolute; inset: 0; background: var(--bg); padding: 46px 14px 0; font-size: 12px; }
+.page .bar { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); margin: 0 -14px 10px; padding-left: 14px; }
+.page .bar img { width: 28px; }
+.page .bar span { margin-left: auto; margin-right: 14px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.page .bar span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #0a7a52; }
+.page .back { color: var(--muted); font-weight: 600; font-size: 12px; }
+.badge { display: inline-block; margin-top: 8px; font-size: 10.5px; font-weight: 600; color: var(--agent); background: var(--agent-bg); border: 1px solid #dccbf3; border-radius: 99px; padding: 2px 8px; }
+.page h3 { font-size: 20px; margin: 4px 0 6px; letter-spacing: -.01em; }
+.pchips { display: flex; gap: 5px; align-items: center; position: relative; height: 22px; }
+.pchips span { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); }
+.pillw { display: inline-grid; padding: 0 !important; border: 0 !important; background: none !important; }
+.pill { grid-area: 1 / 1; font-weight: 700 !important; }
+.pill.pend { background: #e3ecf7 !important; border-color: #e3ecf7 !important; }
+.pill.ok { background: var(--ok-bg) !important; border-color: #bfe9d6 !important; color: var(--ok); }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-top: 10px; }
+.card h5 { font-size: 12.5px; margin-bottom: 6px; }
+.ablk { background: var(--agent-bg); border-left: 3px solid var(--agent-edge); border-radius: 8px; padding: 7px 9px; }
+.ablk .lbl { font-size: 8.5px; font-weight: 700; color: var(--agent); letter-spacing: .08em; margin-bottom: 4px; }
+.st { display: flex; gap: 7px; align-items: baseline; padding: 2px 0; font-size: 11.5px; }
+.st::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--c); transform: translateY(-1px); }
+.st.rep::before { display: none; }
+.st.in { margin-left: 12px; }
+.btns { position: absolute; left: 14px; right: 14px; bottom: 20px; display: flex; gap: 8px; }
+.btns span { flex: 1; text-align: center; font-weight: 700; font-size: 13px; padding: 11px 0; border-radius: 10px; border: 1px solid var(--line-strong, #cfd8e2); background: #fff; }
+.btns span.p { flex: 2.2; background: var(--green); border-color: var(--green); color: var(--navy); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 250px; background: #fff; border-radius: 26px 26px 0 0; box-shadow: 0 -10px 30px -10px rgb(0 0 0 / .3); text-align: center; padding-top: 22px; }
+.shade { position: absolute; inset: 0; background: rgb(8 20 32 / .35); }
+.sheet b { font-size: 16px; display: block; }
+.sheet small { font-size: 12px; color: var(--muted); }
+.fp { width: 74px; height: 74px; margin: 22px auto 10px; position: relative; }
+.fp svg { position: absolute; inset: 0; }
+.sheet .hint { font-size: 12px; color: var(--muted); }
+
+/* side notes */
+.side { position: absolute; font-size: 15px; line-height: 1.4; color: var(--muted); }
+.side b { color: var(--navy); }
+.nope { position: absolute; left: 420px; top: 170px; width: 220px; display: flex; flex-direction: column; gap: 8px; }
+.nope span { font: 16px var(--mono); padding: 8px 12px; border-radius: 8px; background: #fff; border: 1px solid var(--line); color: var(--muted); text-decoration: line-through; text-decoration-color: #d0453a; }
+.nope p { font-size: 16px; color: var(--muted); margin-bottom: 2px; }
+
+/* watch */
+.watch { position: absolute; left: 10px; top: 100px; width: 380px; height: 380px; }
+.watch .btn { position: absolute; width: 18px; height: 46px; background: linear-gradient(90deg, #4a525b, #2a3037); border-radius: 6px; }
+.watch .bezel { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 30deg, #5b636d, #2b3138, #6b737c, #2b3138, #5b636d);
+  box-shadow: 0 30px 50px -20px rgb(8 44 75 / .6); }
+.watch .bezel::after { content: ""; position: absolute; inset: 14px; border-radius: 50%; background: #15191e; }
+.face { position: absolute; inset: 36px; border-radius: 50%; background: #000; color: #fff; overflow: hidden; z-index: 2; }
+.wv { position: absolute; inset: 0; text-align: center; }
+.wv .t { position: absolute; left: 0; right: 0; }
+.dim { color: #a9adb2; }
+.orn { color: var(--orange); }
+.stat { position: absolute; left: 430px; top: 190px; width: 230px; display: flex; flex-direction: column; gap: 10px; }
+.stat .row { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; font-size: 15px; }
+.stat .pp { font-size: 17px; font-weight: 700; padding: 6px 14px; border-radius: 99px; }
+.stat .pp.a { background: #e3ecf7; }
+.stat .pp.d { background: var(--ok-bg); color: var(--ok); }
+.stat small { color: var(--muted); font-size: 15px; }
+.stat .ar { margin-left: 22px; color: #b0bbc7; font-size: 18px; line-height: 1; }
+</style>
+</head>
+<body>
+
+<!-- progress bar -->
+<nav class="progress" id="progress" data-t="3.2,42.0">
+  <span data-step="3.2,8.8"><i>1</i>Data</span>
+  <span data-step="8.8,18.6"><i>2</i>Agent</span>
+  <span data-step="18.6,28.4"><i>3</i>Approve</span>
+  <span data-step="28.4,34.6"><i>4</i>Watch</span>
+  <span data-step="34.6,42.0"><i>5</i>Results</span>
+</nav>
+
+<!-- 0: intro -->
+<section class="scene" data-t="0,3.2" data-f="0.01,0.4">
+  <div class="center">
+    <img src="../images/coachd-icon.svg" alt="" data-t="0,9" data-fx="pop" data-f="0.5">
+    <h1 data-t="0.3,9" data-fx="up">coachd</h1>
+    <p class="tag" data-t="0.9,9" data-fx="up">Your AI agent plans the workout.<br><b>You approve it. Your watch runs it.</b></p>
+  </div>
+</section>
+
+<!-- 1: data -->
+<section class="scene" data-t="3.2,8.8">
+  <div class="cap">
+    <div class="n" data-t="3.3,99" data-fx="up">Step 1</div>
+    <h2 data-t="3.4,99" data-fx="up">Your Garmin data comes in</h2>
+    <p data-t="3.6,99" data-fx="up">Activities with their original FIT files, sleep, HRV and more, from the <b>official Garmin Personal API</b>.</p>
+    <p data-t="3.8,99" data-fx="up">Stored on <b>your own server</b>. Numbers, never verdicts.</p>
+  </div>
+  <div class="stage">
+    <div class="wire" style="left:150px; top:189px; width:90px" data-t="3.6,99"></div>
+    <div class="wire" style="left:360px; top:189px; width:120px" data-t="3.6,99"></div>
+    <div class="node" style="left:20px; top:130px; width:130px" data-t="3.5,99" data-fx="pop">
+      <div class="disc"><svg width="64" height="64" viewBox="0 0 64 64"><rect x="22" y="2" width="20" height="14" rx="3" fill="#2b3138"/><rect x="22" y="48" width="20" height="14" rx="3" fill="#2b3138"/><circle cx="32" cy="32" r="21" fill="#2b3138"/><circle cx="32" cy="32" r="16" fill="#000"/><path d="M32 22v10l7 4" stroke="#0bc78f" stroke-width="3" fill="none" stroke-linecap="round"/></svg></div>
+      Your watch
+    </div>
+    <div class="node" style="left:240px; top:130px; width:120px" data-t="3.7,99" data-fx="pop">
+      <div class="disc"><svg width="70" height="50" viewBox="0 0 70 50"><path d="M18 44h36a13 13 0 0 0 1-26 18 18 0 0 0-34-4A15 15 0 0 0 18 44z" fill="#d7e3ef" stroke="#8aa2ba" stroke-width="2"/></svg></div>
+      Garmin Connect<small>Personal API</small>
+    </div>
+    <div class="node" style="left:470px; top:115px; width:170px" data-t="3.9,99" data-fx="pop">
+      <div class="box"><img src="../images/coachd-icon.svg" alt=""></div>
+      coachd<small>on your server</small>
+    </div>
+    <span class="chip" style="left:270px; top:173px" data-p="4.4,6.0" data-move="230" data-t="4.4,6.0" data-f="0.25,0.25">activities + FIT</span>
+    <span class="chip g" style="left:270px; top:173px" data-p="4.8,6.4" data-move="230" data-t="4.8,6.4" data-f="0.25,0.25">sleep</span>
+    <span class="chip" style="left:270px; top:173px" data-p="5.2,6.8" data-move="230" data-t="5.2,6.8" data-f="0.25,0.25">HRV</span>
+    <span class="chip g" style="left:270px; top:173px" data-p="5.6,7.2" data-move="230" data-t="5.6,7.2" data-f="0.25,0.25">resting HR</span>
+    <span class="chip" style="left:270px; top:173px" data-p="6.0,7.6" data-move="230" data-t="6.0,7.6" data-f="0.25,0.25">Body Battery</span>
+    <div class="keynote" data-t="6.6,99" data-fx="up">
+      <span><b>Garmin key</b> stays on the server</span>
+      <span><b>Raw JSON + FIT</b> kept</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2: agent -->
+<section class="scene" data-t="8.8,18.6">
+  <div class="cap">
+    <div class="n" data-t="8.9,99" data-fx="up">Step 2</div>
+    <h2 data-t="9.0,99" data-fx="up">Your AI agent reads it and proposes a workout</h2>
+    <p data-t="9.2,99" data-fx="up">Over <b>MCP</b>, from the client you already use: Claude, ChatGPT, Gemini, Cursor or a local model.</p>
+    <p data-t="16.2,99" data-fx="up">The proposal waits. <b>Nothing reaches the watch yet.</b></p>
+  </div>
+  <div class="stage">
+    <div class="chat" data-t="9.0,99" data-fx="pop">
+      <div class="chat-head"><span class="av">✦</span>Your AI agent<small>coachd connected over MCP</small></div>
+      <div class="msgs">
+        <div class="bubble me" data-t="9.5,99" data-fx="up">Morning. Slept so-so, legs fine. What about tomorrow?</div>
+        <div class="tool" data-t="10.5,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">get_status</span><span class="tr">sync ok, data 1 h old</span></div>
+        <div class="tool" data-t="11.0,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">get_goal</span><span class="tr">half marathon 29 Nov, under 1:45</span></div>
+        <div class="tool" data-t="11.5,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">get_notes</span><span class="tr">left calf tight, until 8 Nov</span></div>
+        <div class="tool" data-t="12.0,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">get_daily_health</span><span class="tr">sleep 6 h 12 min, HRV 48 ms</span></div>
+        <div class="bubble ai" data-t="12.7,99" data-fx="up" data-type="12.9,15.4">Threshold 3 × 8 min tomorrow, on a flat route because of your calf. I've sent it to coachd for you to approve.</div>
+        <div class="tool hl" data-t="15.7,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">propose_workout</span><span class="tr">pending: waiting for you</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3: approve -->
+<section class="scene" data-t="18.6,28.4">
+  <div class="cap">
+    <div class="n" data-t="18.7,99" data-fx="up">Step 3</div>
+    <h2 data-t="18.8,99" data-fx="up">You approve it with a passkey</h2>
+    <p data-t="19.0,99" data-fx="up">A notification brings you to coachd's page: the steps, and the agent's reason, <b>labelled as agent text</b>.</p>
+    <p data-t="25.0,99" data-fx="up"><b>Only your passkey approves.</b> No MCP tool can approve, deliver or change a workout.</p>
+  </div>
+  <div class="stage">
+    <div class="phone" data-t="18.9,99" data-fx="pop">
+      <div class="screen">
+        <div class="lock" data-t="0,21.3" data-f="0.01,0.3">
+          <div class="clock">07:41</div>
+          <div class="date">Monday 2 November</div>
+          <div class="notif" data-t="19.6,99" data-fx="down">
+            <div class="top"><i>n</i>ntfy<em>now</em></div>
+            <b>coachd</b>
+            <p>Workout for Tue 3 Nov ready to review</p>
+          </div>
+          <div class="tap" style="left:145px; top:240px" data-t="20.6,21.3" data-p="20.6,21.1" data-f="0.1,0.2"></div>
+        </div>
+        <div class="page" data-t="21.0,99" data-f="0.3">
+          <div class="bar"><img src="../images/coachd-icon.svg" alt=""><span>Signed in</span></div>
+          <div class="back">← Home</div>
+          <div class="badge">✦ written by the agent</div>
+          <h3>Threshold 3 × 8 min</h3>
+          <div class="pchips"><span>Tue 3 Nov 2026</span><span>running</span>
+            <span class="pillw"><span class="pill pend" data-t="0,24.9" data-f="0.01,0.3">● pending</span><span class="pill ok" data-t="24.9,99" data-fx="pop" data-f="0.3">✓ approved</span></span></div>
+          <div class="card">
+            <h5>Workout</h5>
+            <div class="ablk">
+              <div class="lbl">✦ WRITTEN BY THE AGENT</div>
+              <div class="st" style="--c:#e0a000">Warm-up · 15:00</div>
+              <div class="st rep">↻ <b>Repeat 3×</b></div>
+              <div class="st in" style="--c:#e0453a">Active · 8:00 · pace 4:45–4:55 /km</div>
+              <div class="st in" style="--c:#22b86b">Recovery · 2:00</div>
+              <div class="st" style="--c:#2d8fe0">Cool-down · 10:00</div>
+            </div>
+          </div>
+          <div class="card">
+            <h5>What the agent said it is for</h5>
+            <div class="ablk"><div class="lbl">✦ WRITTEN BY THE AGENT</div>Threshold work for the half. Flat route: calf note until 8 Nov.</div>
+          </div>
+          <div class="btns" data-t="0,24.9" data-f="0.01,0.3"><span class="p">Approve with passkey</span><span>Decline</span></div>
+          <div class="btns" data-t="24.9,99" data-f="0.3"><span class="p">Download FIT</span><span>Withdraw</span></div>
+          <div class="tap" style="left:100px; top:528px" data-t="22.3,22.9" data-p="22.3,22.8" data-f="0.1,0.2"></div>
+          <div class="shade" data-t="22.8,24.5" data-f="0.3"></div>
+          <div class="sheet" data-t="22.8,24.5" data-fx="sheet" data-f="0.35">
+            <b>Use your passkey</b>
+            <small>to approve on coachd.example.com</small>
+            <div class="fp">
+              <svg viewBox="0 0 74 74" data-t="0,23.8" data-f="0.01,0.2"><g fill="none" stroke="#082c4b" stroke-width="3" stroke-linecap="round"><path d="M20 30a17 17 0 0 1 34 0v8"/><path d="M27 32a10 10 0 0 1 20 0v10c0 6-2 11-5 15"/><path d="M37 33v11c0 7-3 13-7 17"/><path d="M14 44c0-6 0-10 1-14"/><path d="M54 46c0 5-1 9-3 13"/></g></svg>
+              <svg viewBox="0 0 74 74" data-t="23.8,99" data-fx="pop" data-f="0.25"><circle cx="37" cy="37" r="30" fill="#0bc78f"/><path d="M24 38l9 9 17-19" stroke="#082c4b" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="hint" data-t="0,23.8" data-f="0.01,0.2">Touch the sensor</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="nope" data-t="25.6,99" data-fx="left">
+      <p>Not an MCP tool:</p>
+      <span>approve</span><span>deliver</span><span>withdraw</span>
+    </div>
+  </div>
+</section>
+
+<!-- 4: watch -->
+<section class="scene" data-t="28.4,34.6">
+  <div class="cap">
+    <div class="n" data-t="28.5,99" data-fx="up">Step 4</div>
+    <h2 data-t="28.6,99" data-fx="up">It lands on your watch</h2>
+    <p data-t="28.8,99" data-fx="up">The coachd <b>Connect IQ app</b> copies it into the watch's workout player and confirms delivery.</p>
+    <p data-t="29.0,99" data-fx="up">Or download it as a <b>FIT file</b> or a <b>Zwift workout</b>.</p>
+  </div>
+  <div class="stage">
+    <div class="watch" data-t="28.6,99" data-fx="pop">
+      <div class="btn" style="left:-8px; top:110px"></div><div class="btn" style="left:-8px; top:224px"></div>
+      <div class="btn" style="right:-8px; top:110px"></div><div class="btn" style="right:-8px; top:224px"></div>
+      <div class="bezel"></div>
+      <div class="face">
+        <div class="wv" data-t="0,29.9" data-f="0.01,0.25">
+          <div class="t dim" style="top:30px; font-size:15px">coachd</div>
+          <div class="t" style="top:132px; font-size:22px; font-weight:600">Syncing…</div>
+        </div>
+        <div class="wv" data-t="29.9,31.9" data-f="0.25">
+          <div class="t dim" style="top:30px; font-size:15px">coachd</div>
+          <div class="t orn" style="top:62px; font-size:22px; font-weight:600">Today</div>
+          <div class="t" style="top:102px; font-size:27px; font-weight:700; line-height:1.15; padding:0 40px">Threshold<br>3 × 8 min</div>
+          <div class="t dim" style="top:180px; font-size:16px">Running · 55 min</div>
+          <div class="t dim" style="top:246px; font-size:13px">Last sync 06:58</div>
+        </div>
+        <div class="wv" data-t="31.9,99" data-f="0.25" style="font-size:15px; line-height:1.45">
+          <div class="t orn" style="top:28px; font-size:16px; font-weight:600">Today · 55 min</div>
+          <div class="t" style="top:52px; font-size:19px; font-weight:700">Threshold 3 × 8 min</div>
+          <div class="t" style="top:88px">Warm-up 15:00</div>
+          <div class="t" style="top:112px">3× Active 8:00</div>
+          <div class="t dim" style="top:134px; font-size:14px">4:45–4:55 /km</div>
+          <div class="t" style="top:158px">Recovery 2:00</div>
+          <div class="t" style="top:182px">Cool-down 10:00</div>
+          <div class="t orn" style="top:226px; font-size:14px">START: begin workout</div>
+        </div>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="row" data-t="30.2,99" data-fx="left"><span class="pp a">approved</span><small>Mon 07:42, your passkey</small></div>
+      <div class="ar" data-t="30.6,99">↓</div>
+      <div class="row" data-t="30.9,99" data-fx="left"><span class="pp d">✓ delivered</span><small>Tue 06:58, the watch confirmed</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5: results -->
+<section class="scene" data-t="34.6,42.0">
+  <div class="cap">
+    <div class="n" data-t="34.7,99" data-fx="up">Step 5</div>
+    <h2 data-t="34.8,99" data-fx="up">The results go back to your agent</h2>
+    <p data-t="35.0,99" data-fx="up"><b>Planned vs actual</b> for every step, linked to the workout you approved, plus your own post-run rating.</p>
+    <p data-t="35.2,99" data-fx="up">The agent plans the next one. You approve again.</p>
+  </div>
+  <div class="stage">
+    <div class="chat" data-t="34.8,99" data-fx="pop">
+      <div class="chat-head"><span class="av">✦</span>Your AI agent<small>coachd connected over MCP</small></div>
+      <div class="msgs">
+        <div class="bubble me" data-t="35.3,99" data-fx="up">Done. Felt good, calf quiet.</div>
+        <div class="tool" data-t="36.0,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">get_activity</span><span class="tr">3 intervals, feel 75 %, RPE 7</span></div>
+        <div class="res" data-t="36.6,99" data-fx="up">
+          <h4>Threshold 3 × 8 min <span>· target 4:45–4:55 /km</span></h4>
+          <div class="rep" data-p="36.8,37.8"><span>Rep 1</span><b>4:48 /km</b><span class="bar"><i style="--w:84%"></i></span><span class="pc">84 % in range</span></div>
+          <div class="rep" data-p="37.0,38.0"><span>Rep 2</span><b>4:50 /km</b><span class="bar"><i style="--w:90%"></i></span><span class="pc">90 % in range</span></div>
+          <div class="rep" data-p="37.2,38.2"><span>Rep 3</span><b>4:52 /km</b><span class="bar"><i style="--w:87%"></i></span><span class="pc">87 % in range</span></div>
+          <div class="feel">Your rating: <b>feel 75 %</b> · <b>RPE 7</b></div>
+        </div>
+        <div class="bubble ai" data-t="38.5,99" data-fx="up" data-type="38.7,40.4">All three in range, and you felt good. Thursday: easy 40 min, calf check first.</div>
+        <div class="tool hl" data-t="40.7,99" data-fx="left"><span class="ic"><img src="../images/coachd-icon.svg" alt=""></span><span class="tn">send_message</span><span class="tr">shown on your watch</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6: outro -->
+<section class="scene" data-t="42.0,99" data-f="0.4,0.01">
+  <div class="center">
+    <img src="../images/coachd-icon.svg" alt="" data-t="42.1,99" data-fx="pop" data-f="0.5">
+    <h1 data-t="42.3,99" data-fx="up">coachd</h1>
+    <p class="tag" data-t="42.6,99" data-fx="up">A gateway between your AI agent and your Garmin watch.<br><b>A gateway, not a coach.</b></p>
+    <div class="facts" data-t="43.1,99" data-fx="up"><span>Self-hosted</span><span>Open source</span><span>Official Garmin API</span><span>You approve every workout</span></div>
+    <div class="url" data-t="43.6,99" data-fx="up">github.com/stefiix92/coachd</div>
+  </div>
+</section>
+
+<script>
+const DURATION = 46;
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const ease = (x) => 1 - Math.pow(1 - x, 3);
+const els = [...document.querySelectorAll("[data-t]")];
+const typed = [...document.querySelectorAll("[data-type]")];
+typed.forEach((el) => { el.dataset.full = el.textContent; });
+const pairs = (s) => s.split(",").map(Number);
+
+function render(t) {
+  for (const el of els) {
+    const [a, b] = pairs(el.dataset.t);
+    const [fi, fo] = el.dataset.f ? pairs(el.dataset.f).concat(pairs(el.dataset.f)).slice(0, 2) : [0.35, 0.35];
+    const pin = clamp((t - a) / fi), pout = clamp((b - t) / fo);
+    const e = ease(pin), o = Math.min(pin, pout);
+    el.style.opacity = o;
+    el.style.visibility = o === 0 ? "hidden" : "visible";
+    const fx = el.dataset.fx;
+    if (fx === "up") el.style.transform = `translateY(${(1 - e) * 16}px)`;
+    else if (fx === "left") el.style.transform = `translateX(${(1 - e) * -18}px)`;
+    else if (fx === "pop") el.style.transform = `scale(${0.94 + 0.06 * e})`;
+    else if (fx === "down") el.style.transform = `translateY(${(1 - e) * -40}px)`;
+    else if (fx === "sheet") el.style.transform = `translateY(${(1 - ease(Math.min(pin, pout))) * 100}%)`;
+  }
+  for (const el of document.querySelectorAll("[data-p]")) {
+    const [a, b] = pairs(el.dataset.p);
+    const p = ease(clamp((t - a) / (b - a)));
+    el.style.setProperty("--p", p);
+    if (el.dataset.move) el.style.transform = `translateX(${p * +el.dataset.move}px)`;
+  }
+  for (const el of typed) {
+    const [a, b] = pairs(el.dataset.type);
+    const p = clamp((t - a) / (b - a));
+    const full = el.dataset.full;
+    const n = Math.round(p * full.length);
+    const rest = document.createElement("span");
+    rest.style.visibility = "hidden";
+    rest.textContent = full.slice(n);
+    const parts = [document.createTextNode(full.slice(0, n))];
+    if (p > 0 && p < 1) { const c = document.createElement("span"); c.className = "caret"; parts.push(c); }
+    el.replaceChildren(...parts, rest);
+  }
+  for (const s of document.querySelectorAll("[data-step]")) {
+    const [a, b] = pairs(s.dataset.step);
+    s.className = t >= b ? "done" : t >= a ? "on" : "";
+  }
+}
+
+const m = location.hash.match(/t=([\d.]+)/);
+if (location.hash.includes("play")) {
+  const start = performance.now();
+  const loop = () => { render(((performance.now() - start) / 1000) % DURATION); requestAnimationFrame(loop); };
+  loop();
+} else {
+  render(m ? +m[1] : 0);
+}
+</script>
+</body>
+</html>
