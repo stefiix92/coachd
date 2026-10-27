@@ -14,6 +14,10 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 - The install guide (`deploy/README.md`), the watch app guide (`watch/README.md`) and the Grafana guide (`deploy/grafana/README.md`) moved to the documentation site; those files now point to its pages. The README is shorter and links to the site.
 
+### Security
+
+- Built with Go 1.27.3, which fixes [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809): `crypto/x509` now distrusts compromised intermediate certificates. govulncheck reports the affected code reachable from passkey sign-in. Images up to 0.5.0 were built with Go 1.27.2; upgrade to the next release.
+
 ### Fixed
 
 - **FIT files with an empty header CRC:** some Zwift rides write a 14-byte FIT header whose optional CRC is 0x0000. The FIT decoder coachd uses then computed the file CRC without the header and rejected these valid files, so the ride had no laps, series or perceived effort ("fit detail failed", error class `other`). coachd now checks FIT integrity as Garmin's FIT SDK does; truncated and damaged files are still rejected. Affected rides fill in on the next sync after upgrading.
