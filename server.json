@@ -20,9 +20,9 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://{host}/mcp",
+      "url": "https://{coachd_host}/mcp",
       "variables": {
-        "host": {
+        "coachd_host": {
           "description": "Host name of your own coachd instance (self-hosted, one per runner)",
           "isRequired": true,
           "placeholder": "coachd.example.com"
