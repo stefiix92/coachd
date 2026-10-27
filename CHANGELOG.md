@@ -9,6 +9,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 ### Added
 
 - **Documentation site** at [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/): install, agents, workouts, the watch app, operations and reference, with search, built with Hugo and the Hextra theme from `docs/` and published to GitHub Pages by the new `docs` workflow. Every page is also served as Markdown, with an `llms.txt` index, for agents reading the docs.
+- **New documentation pages:** troubleshooting, FAQ, compatibility (AI clients, watches and phones), data and privacy, coachd compared with alternatives, an example week of a runner and an agent, and starter instructions for your agent. The README gains the overview diagram.
 
 ### Changed
 
