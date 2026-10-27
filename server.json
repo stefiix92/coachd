@@ -3,7 +3,7 @@
   "name": "io.github.stefiix92/coachd",
   "title": "coachd",
   "description": "Self-hosted gateway: your Garmin data over MCP, passkey-approved workouts to your Garmin watch.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "websiteUrl": "https://stefiix92.github.io/coachd/",
   "repository": {
     "url": "https://github.com/stefiix92/coachd",
