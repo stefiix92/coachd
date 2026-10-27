@@ -49,7 +49,7 @@ All training evaluation and planning belongs to the AI agent and the runner. Nev
   - Poll conservatively; honour 429 and `Retry-After`.
 - **Garmin free text** (activity names and descriptions) is untrusted, a prompt-injection vector. Label it as untrusted or omit it.
 - **Telemetry redaction is an allowlist.** Logs, span attributes and metric labels carry only declared keys: IDs, dates, outcomes, durations, counts, error classes. Never health values, chat or note text, or secrets. Tests must enforce this.
-- **No published host ports except coachd's public listener on `127.0.0.1:8080`, for a tunnel or reverse proxy on the host (owner decision 2026-10-23).** Never publish :8081 or :9090.
+- **No published host ports except coachd's public listener on `127.0.0.1:8080`, for a tunnel or reverse proxy on the host (owner decision 2026-10-23).** Never publish :8081 or :9090. One exception (owner decision 2026-10-27): the demo docs' `docker run` publishes the private lane on `127.0.0.1:8081`, for a demo-mode instance only (`docs/design/demo-mode.md` §7).
   - Public access only through Cloudflare Access (access mode: validate `Cf-Access-Jwt-Assertion` on every request) or coachd's built-in OAuth and passkeys (builtin mode). In builtin mode only login, enrolment, OAuth metadata, authorize, token, revoke, register and `/device/v1` are reachable without a session or token, and each checks its own credential. Agent tokens work only on `/mcp`.
   - Private access only via Tailscale (no Funnel) with hashed, scoped static tokens.
 - **MCP serves both spec 2026-07-28 and 2025-11-25.** The 2026-07-28 revision requires `StreamableHTTPOptions.Stateless = true` plus `ServerOptions.SupportedProtocolVersions`.

@@ -96,7 +96,8 @@ demo directory. **[call]**
 
 A short "Try it with demo data" page: `docker run` of the release image with `COACHD_DEMO=true`,
 publishing the private listener on the host's loopback only (`127.0.0.1:8081`), then `token create`
-and `claude mcp add` over `http://127.0.0.1:8081/mcp`. **[call]** The deployment stack is unchanged
+and `claude mcp add` over `http://127.0.0.1:8081/mcp`. **[owner]** (2026-10-27: a demo-only exception to
+"never publish :8081".) The deployment stack is unchanged
 and still publishes only `127.0.0.1:8080`; this throwaway demo is the one place the docs publish
 `:8081`, on loopback. `:9090` stays unpublished.
 
