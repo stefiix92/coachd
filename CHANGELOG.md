@@ -9,6 +9,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 ### Added
 
 - **Documentation site** at [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/): install, agents, workouts, the watch app, operations and reference, with search, built with Hugo and the Hextra theme from `docs/` and published to GitHub Pages by the new `docs` workflow. Every page is also served as Markdown, with an `llms.txt` index, for agents reading the docs.
+- **Watch app CI:** the new `watch` workflow builds the watch app for every supported watch and runs its simulator tests on Linux; with a `CIQ_DEVELOPER_KEY` secret, releases also attach the Connect IQ Store package. It needs the `GARMIN_USERNAME` and `GARMIN_PASSWORD` secrets for Garmin's device files and skips with a notice without them.
 
 ### Changed
 
