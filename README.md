@@ -7,6 +7,11 @@
 
 > A self-hosted gateway between your AI coach and your Garmin watch. It serves your Garmin data to any AI agent and puts the workout you agreed on onto your watch, but only after you approve it.
 
+<p align="center">
+  <img src="docs/images/coachd-demo.gif" width="720" alt="Animated walkthrough in five steps: Garmin data flows into coachd; an AI agent reads it over MCP and proposes a threshold workout; the runner approves it with a passkey on coachd's page; the watch app syncs it and confirms delivery; after the run, planned versus actual per interval goes back to the agent">
+</p>
+<p align="center"><sub>How it works in 46 seconds. Mocked, with a made-up runner (<a href="https://stefiix92.github.io/coachd/docs/agents/example/">an example week</a>).</sub></p>
+
 One signed Docker image, one instance per runner. Your Garmin key and health data stay on your server ([data and privacy](https://stefiix92.github.io/coachd/docs/reference/privacy/)).
 
 **📖 Documentation: [stefiix92.github.io/coachd](https://stefiix92.github.io/coachd/)**: [install](https://stefiix92.github.io/coachd/docs/install/), [connect an agent](https://stefiix92.github.io/coachd/docs/agents/), [watch app](https://stefiix92.github.io/coachd/docs/watch/), [MCP tools](https://stefiix92.github.io/coachd/docs/agents/tools/), [FAQ](https://stefiix92.github.io/coachd/docs/faq/), [troubleshooting](https://stefiix92.github.io/coachd/docs/operations/troubleshooting/).

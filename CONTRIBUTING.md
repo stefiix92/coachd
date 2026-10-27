@@ -29,6 +29,8 @@ The watch app lives in `watch/`; see its [development guide](https://stefiix92.g
 
 The documentation site is a [Hugo](https://gohugo.io/) site with the Hextra theme in `docs/`: pages in `docs/content/`, published to GitHub Pages by the `docs` workflow. To preview it, install Hugo extended and run `hugo server` in `docs/`.
 
+The README's walkthrough GIF is an HTML animation in `docs/demo/index.html` (open `index.html#play` in a browser to watch it). After changing it, run `docs/demo/render.sh` (Chrome, ffmpeg and bc) to regenerate `docs/images/coachd-demo.gif`.
+
 ## Pull requests
 
 - Keep each PR to one change, with tests: a failing test first for bug fixes.
