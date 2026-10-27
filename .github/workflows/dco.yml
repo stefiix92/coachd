@@ -1,0 +1,44 @@
+# Every non-merge commit in a pull request needs a Signed-off-by line for its
+# author (Developer Certificate of Origin, see CONTRIBUTING.md). Bot commits
+# are exempt, and a later commit may add a missing sign-off with the DCO
+# remediation line "I, Name <email>, hereby add my Signed-off-by to this
+# commit: <sha>".
+name: dco
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check sign-offs
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          remediated=$(git log --format=%B "$BASE..$HEAD" |
+            sed -n 's/.*hereby add my Signed-off-by to this commit: \([0-9a-f]\{7,40\}\).*/\1/p')
+          bad=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            name=$(git show -s --format=%an "$c")
+            case "$name" in *'[bot]') continue ;; esac
+            author="$name <$(git show -s --format=%ae "$c")>"
+            if git show -s --format=%B "$c" | grep -qxF "Signed-off-by: $author"; then
+              continue
+            fi
+            ok=0
+            for r in $remediated; do
+              case "$c" in "$r"*) ok=1 ;; esac
+            done
+            if [ "$ok" = 0 ]; then
+              echo "::error::commit ${c:0:12} has no 'Signed-off-by: $author' line (commit with git commit -s)"
+              bad=1
+            fi
+          done
+          exit "$bad"

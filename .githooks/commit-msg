@@ -1,0 +1,7 @@
+#!/bin/sh
+# Refuse a commit without a DCO sign-off (CONTRIBUTING.md). Enable with
+# `make hooks`. Merge commits are exempt, as in the dco workflow.
+[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] && exit 0
+grep -q '^Signed-off-by: ' "$1" && exit 0
+echo "commit-msg: no Signed-off-by line; commit with git commit -s (see CONTRIBUTING.md)" >&2
+exit 1

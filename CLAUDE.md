@@ -11,6 +11,7 @@ Implemented: M1 (data gateway), M2 (context, proposals, passkey approval, ntfy, 
 - Test: `go test -race ./...`
 - Vet: `go vet ./...`
 - Format check: `gofmt -l .` (must print nothing)
+- Lint: `make lint` (staticcheck); every CI gate but the image build: `make check`
 - Build: `CGO_ENABLED=0 go build ./cmd/coachd` (Pi image: add `GOOS=linux GOARCH=arm64`)
 - Run: `./coachd serve` (needs `COACHD_TIMEZONE` and the Garmin key settings; see `deploy/.env.example`); other subcommands: `token`, `enroll`, `device`, `backup`, `restore`, `healthcheck`, `version`
 - Compose check: `docker compose -f deploy/compose.yaml config` (add `-f deploy/compose.cloud.yaml` for the cloud override)

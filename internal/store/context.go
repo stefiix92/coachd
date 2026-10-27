@@ -145,7 +145,7 @@ const agentAuthored = `created_by LIKE 'agent:%'`
 // decided in the update's own transaction.
 func (db *DB) UpdateAgentNote(ctx context.Context, n Note) (Note, error) {
 	if !strings.HasPrefix(n.CreatedBy, "agent:") {
-		return Note{}, errors.New("store: update agent note: created_by must start with agent:")
+		return Note{}, errors.New("store: update agent note: created_by lacks the agent: prefix")
 	}
 	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {

@@ -252,7 +252,7 @@ func TestNtfySpanOutcome(t *testing.T) {
 			if !slices.Contains(telemetry.AllowedKeys, string(kv.Key)) {
 				t.Errorf("%s: attribute %q is not allowlisted", tc.outcome, kv.Key)
 			}
-			attrs[string(kv.Key)] = kv.Value.Emit()
+			attrs[string(kv.Key)] = kv.Value.String()
 		}
 		if attrs["outcome"] != tc.outcome || attrs["proposal_id"] != "id1" {
 			t.Errorf("%s: attributes = %v", tc.outcome, attrs)

@@ -3,3 +3,9 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/stefiix92/coachd/security/advisories/new
     about: Please report vulnerabilities privately, not as an issue.
+  - name: Ask a question or share your setup
+    url: https://github.com/stefiix92/coachd/discussions
+    about: Questions, ideas in progress and setups go to Discussions.
+  - name: Read the documentation
+    url: https://stefiix92.github.io/coachd/
+    about: Install, connect an agent, the watch app and troubleshooting.

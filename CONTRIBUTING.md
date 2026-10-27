@@ -18,12 +18,12 @@ These come from the design ([`docs/design/coachd-design.md`](docs/design/coachd-
 You need Go (the version in `go.mod`), and Docker for the image and compose checks.
 
 ```bash
-go test -race ./...                            # all tests
-go vet ./...
-gofmt -l .                                     # must print nothing
-CGO_ENABLED=0 go build ./cmd/coachd            # static binary; keep the build cgo-free
-docker compose -f deploy/compose.yaml config   # compose check
+make check   # gofmt, go vet, staticcheck, race tests, govulncheck, compose check
+make build   # static binary; keep the build cgo-free
+make hooks   # once per clone: gofmt before each commit, refuse commits without a sign-off
 ```
+
+Each target is one plain command (see the `Makefile`) if you'd rather run them yourself.
 
 The watch app lives in `watch/`; see its [development guide](https://stefiix92.github.io/coachd/docs/watch/development/).
 
@@ -35,7 +35,7 @@ The documentation site is a [Hugo](https://gohugo.io/) site with the Hextra them
 - Match the surrounding code: its naming, comment density and error handling.
 - New dependencies need a reason: a small dependency footprint is a review criterion.
 - Update the documentation (`docs/content/`) when you change behaviour, configuration or operations.
-- CI (vet, race tests, govulncheck, the multi-arch image build) must pass.
+- CI (`make check` plus actionlint, shellcheck, the DCO check and the multi-arch image build) must pass.
 
 ## Sign-off (DCO)
 
@@ -57,7 +57,8 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
    - runs the tests;
    - builds and pushes the multi-arch image to `ghcr.io/<owner>/coachd`, with an SBOM and provenance;
    - signs it with Sigstore keyless signing;
-   - creates the GitHub release from that changelog section, with the image digest and the `cosign verify` command.
+   - creates the GitHub release from that changelog section, with the image digest and the `cosign verify` command;
+   - lists the version in the [MCP Registry](https://registry.modelcontextprotocol.io/) from `server.json` (its `version` is set from the tag).
 
    It fails if the changelog has no section for the tag.
 4. On the first release, check that the ghcr.io package is public (Package settings → Change visibility).

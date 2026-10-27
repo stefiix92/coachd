@@ -17,7 +17,7 @@ This is a one-person project, so responses are best effort: expect an acknowledg
 
 ## Supported versions
 
-Only the latest `main` is supported until tagged releases exist.
+The latest release and `main`. Fixes ship in the next release; older releases get no backports while coachd is 0.x.
 
 ## In scope
 

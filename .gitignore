@@ -6,6 +6,8 @@
 .secrets/
 .env
 /.superpowers/
+/.claude/worktrees/
+/.claude/settings.local.json
 watch/bin/
 watch/source/Config.mc
 deploy/restic.env

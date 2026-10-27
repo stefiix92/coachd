@@ -3,6 +3,7 @@
 [![CI](https://github.com/stefiix92/coachd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stefiix92/coachd/actions/workflows/ci.yml?query=branch%3Amain)
 [![Latest release](https://img.shields.io/github/v/release/stefiix92/coachd)](https://github.com/stefiix92/coachd/releases/latest)
 [![Docs](https://img.shields.io/badge/docs-stefiix92.github.io%2Fcoachd-blue)](https://stefiix92.github.io/coachd/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/stefiix92/coachd/badge)](https://scorecard.dev/viewer/?uri=github.com/stefiix92/coachd)
 
 > A self-hosted gateway between your AI coach and your Garmin watch. It serves your Garmin data to any AI agent and puts the workout you agreed on onto your watch, but only after you approve it.
 
@@ -49,7 +50,7 @@ Design records are in [`docs/design/`](docs/design/), starting with [`coachd-des
 
 ## Roadmap
 
-Next: a smoother first-time install, and wider live testing of AI clients against built-in mode. Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
+Next: a smoother first-time install, and wider live testing of AI clients against built-in mode. Planned work is tracked in [roadmap issues](https://github.com/stefiix92/coachd/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap); smaller ones are labelled [good first issue](https://github.com/stefiix92/coachd/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Disclaimer
 

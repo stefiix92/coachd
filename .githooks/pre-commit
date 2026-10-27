@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuse a commit whose staged Go files need gofmt. Enable with `make hooks`.
+# It checks the working-tree copies, which is what `gofmt -l .` in CI sees
+# once they are committed.
+bad=$(git diff --cached --name-only --diff-filter=ACMR -z -- '*.go' | xargs -0 gofmt -l)
+[ -z "$bad" ] && exit 0
+echo "pre-commit: gofmt needed:" >&2
+echo "$bad" >&2
+echo "run gofmt -w on these files and stage them again" >&2
+exit 1
