@@ -114,9 +114,10 @@ else
 	[[ -n "$public_id" ]] || die "no application id in manifest.xml"
 	sed -e "s/id=\"$public_id\"/id=\"$dev_id\"/" -e 's/name="@Strings.AppName"/name="@Strings.AppNameDev"/' \
 		"$here/manifest.xml" >"$here/bin/manifest-dev.xml"
-	grep -qF "id=\"$dev_id\"" "$here/bin/manifest-dev.xml" &&
-		grep -qF 'name="@Strings.AppNameDev"' "$here/bin/manifest-dev.xml" ||
+	if ! grep -qF "id=\"$dev_id\"" "$here/bin/manifest-dev.xml" ||
+		! grep -qF 'name="@Strings.AppNameDev"' "$here/bin/manifest-dev.xml"; then
 		die "could not write bin/manifest-dev.xml"
+	fi
 	# monkey.jungle with the dev manifest; test builds add test/ (the helpers
 	# and the (:test) suite).
 	# Paths are relative to bin/.

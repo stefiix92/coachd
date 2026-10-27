@@ -20,7 +20,9 @@ for dir in "$devices"/fenix* "$devices"/fr*; do
 	[[ "$id" != *preview* ]] || continue
 	api="$dir/$id.api.debug.xml"
 	[[ -f "$dir/compiler.json" && -f "$api" ]] || continue
-	grep -q getAppWorkouts "$api" && grep -q HTTP_RESPONSE_CONTENT_TYPE_FIT "$api" || continue
+	if ! grep -q getAppWorkouts "$api" || ! grep -q HTTP_RESPONSE_CONTENT_TYPE_FIT "$api"; then
+		continue
+	fi
 	python3 -I - "$dir/compiler.json" <<'PY' || continue
 import json, sys
 c = json.load(open(sys.argv[1]))
