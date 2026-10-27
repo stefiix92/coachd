@@ -1,6 +1,6 @@
 # A pushed tag vX.Y.Z publishes a signed multi-arch image to ghcr.io with an
 # SBOM and build provenance, then a GitHub release whose notes are the
-# matching CHANGELOG.md section, then lists the version in the MCP Registry.
+# matching CHANGELOG.md section.
 # A pre-release tag (vX.Y.Z-rc.N) uses the X.Y.Z section and is published as
 # a pre-release.
 name: release
@@ -15,7 +15,7 @@ jobs:
     permissions:
       contents: write # the GitHub release
       packages: write # push to ghcr.io
-      id-token: write # keyless signing (Sigstore) and MCP Registry login, via GitHub OIDC
+      id-token: write # keyless signing (Sigstore), via GitHub OIDC
     env:
       IMAGE: ghcr.io/${{ github.repository }}
     steps:
@@ -82,20 +82,6 @@ jobs:
           pre=()
           [[ "$TAG" == *-* ]] && pre=(--prerelease)
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${pre[@]}"
-      # server.json lists coachd in the MCP Registry (a self-hosted remote:
-      # each runner fills in their own host). GitHub OIDC proves the
-      # io.github.<owner> namespace, so no secret is needed. Pre-releases are
-      # not listed.
-      - name: Publish to the MCP Registry
-        if: ${{ !contains(github.ref_name, '-') }}
-        env:
-          TAG: ${{ github.ref_name }}
-          PUBLISHER: github.com/modelcontextprotocol/registry/cmd/publisher@v1.8.5
-        run: |
-          jq --arg v "${TAG#v}" '.version = $v' server.json > server.json.new
-          mv server.json.new server.json
-          go run "$PUBLISHER" login github-oidc
-          go run "$PUBLISHER" publish
   # The watch app's Connect IQ Store package (the public app, watch/bin/coachd.iq),
   # attached to the release. Only when the CIQ_DEVELOPER_KEY secret (the
   # developer key, base64 of its DER file) is set; it then also needs

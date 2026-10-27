@@ -58,7 +58,6 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
    - builds and pushes the multi-arch image to `ghcr.io/<owner>/coachd`, with an SBOM and provenance;
    - signs it with Sigstore keyless signing;
    - creates the GitHub release from that changelog section, with the image digest and the `cosign verify` command;
-   - lists the version in the [MCP Registry](https://registry.modelcontextprotocol.io/) from `server.json` (its `version` is set from the tag).
 
    It fails if the changelog has no section for the tag.
 4. On the first release, check that the ghcr.io package is public (Package settings → Change visibility).
