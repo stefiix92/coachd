@@ -12,7 +12,7 @@ services:
   grafana:
     # Grafana OSS 12.4.13 (grafana/grafana is the OSS image; grafana/grafana-oss
     # stopped receiving 12.x updates after 12.4.3). Multi-arch index digest.
-    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
     user: "472:472"
     restart: unless-stopped
     cap_drop: [ALL]
