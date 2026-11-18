@@ -487,6 +487,30 @@ func TestSyncIntervalsNewestIsDayAfterWindow(t *testing.T) {
 	}
 }
 
+// An intervals.icu 5xx or transport failure logs its own error class, neither
+// Garmin's nor "other".
+func TestIntervalsStatusErrorClass(t *testing.T) {
+	for name, err := range map[string]error{
+		"5xx":       &intervals.StatusError{Endpoint: "activities", Status: 502},
+		"transport": &intervals.StatusError{Endpoint: "activities"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fi := newFakeIntervals()
+			fi.setErr(miList, err)
+			rec := newLogRecorder()
+			e := newIntervalsEnv(t, seededFake(t), fi, rec)
+			mustSync(t, e)
+			for _, l := range rec.lines(t, "sync type finished") {
+				if l.attrs["data_type"] == TypeIntervals {
+					wantAttrs(t, l, map[string]string{"outcome": OutcomeError, "error_class": "intervals_status"})
+					return
+				}
+			}
+			t.Fatal("no sync type finished line for intervals_activities")
+		})
+	}
+}
+
 func TestIntervalsPauseCapped(t *testing.T) {
 	fi := newFakeIntervals()
 	fi.setErr(miList, &intervals.RateLimitedError{RetryAt: testNow.Add(48 * time.Hour)})

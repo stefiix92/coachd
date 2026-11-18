@@ -739,6 +739,7 @@ func errorClass(err error) string {
 	var rl *garmin.RateLimitedError
 	var irl *intervals.RateLimitedError
 	var se *garmin.StatusError
+	var ise *intervals.StatusError
 	switch {
 	case errors.Is(err, errProbeUnreliable):
 		return "probe_unreliable"
@@ -752,6 +753,8 @@ func errorClass(err error) string {
 		return "context"
 	case errors.As(err, &se):
 		return "garmin_status"
+	case errors.As(err, &ise):
+		return "intervals_status"
 	}
 	return "other"
 }
