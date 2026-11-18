@@ -228,9 +228,7 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 	}
 	span.SetAttributes(attribute.String("outcome", worstOutcome(res.Outcomes)), attribute.Int("count", stored))
 	if dupOK && res.Outcomes[TypeActivities] == OutcomeOK && res.Outcomes[TypeIntervals] == OutcomeOK {
-		if s.resolveDuplicatesStep(ctx, dupFrom, today) > 0 {
-			anyOK = true
-		}
+		s.resolveDuplicatesStep(ctx, dupFrom, today) // both ok: anyOK is set, so the recompute below covers it
 	}
 	if anyOK {
 		if err := summaries.Recompute(ctx, s.db, today, recomputeDays(today, all.earliest)); err != nil {

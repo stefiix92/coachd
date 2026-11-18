@@ -136,14 +136,13 @@ func (s *Service) applyDuplicates(ctx context.Context, from, to civil.Date) (int
 }
 
 // resolveDuplicatesStep runs applyDuplicates and logs it; a store error is
-// logged and changes no outcome. It returns the marks changed.
-func (s *Service) resolveDuplicatesStep(ctx context.Context, from, to civil.Date) int {
+// logged and changes no outcome.
+func (s *Service) resolveDuplicatesStep(ctx context.Context, from, to civil.Date) {
 	n, err := s.applyDuplicates(ctx, from, to)
 	if err != nil {
 		s.log.ErrorContext(ctx, "duplicates resolve failed", "data_type", TypeIntervals, "outcome", OutcomeError,
 			"count", n, "error_class", errorClass(err), "error", err)
-		return n
+		return
 	}
 	s.log.InfoContext(ctx, "duplicates resolved", "data_type", TypeIntervals, "count", n)
-	return n
 }
