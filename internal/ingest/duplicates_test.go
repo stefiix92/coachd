@@ -257,6 +257,58 @@ func TestBackfillHidesDuplicate(t *testing.T) {
 	}
 }
 
+// The two copies of a session can carry different local dates. A mark whose
+// hider is dated outside the resolved range stays while the hider is not
+// soft-deleted, and clears once it is.
+func TestApplyDuplicatesKeepsMarkOfHiderOutsideRange(t *testing.T) {
+	ctx := context.Background()
+	e := newIntervalsEnv(t, newFake(), newFakeIntervals(), nil)
+	in, out := civil.Date{Year: 2026, Month: 10, Day: 22}, civil.Date{Year: 2026, Month: 10, Day: 21}
+	start := time.Date(2026, 10, 21, 22, 5, 0, 0, time.UTC)
+	for _, a := range []store.Activity{
+		{ID: 5001, Source: store.SourceGarmin, Date: in},
+		{ID: -777, Source: store.SourceIntervals, SourceID: "i777", Date: out, HasPower: true},
+	} {
+		a.Sport, a.TypeKey, a.StartUTC, a.StartLocal, a.WeekStart = store.SportCycling, "cycling", start, start, a.Date.WeekStart()
+		a.DurationS, a.MovingS, a.FITStatus = 3600, 3600, store.FITUnavailable
+		if err := e.db.UpsertActivity(ctx, a, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hider := int64(-777)
+	if err := e.db.SetHiddenBy(ctx, 5001, &hider); err != nil {
+		t.Fatal(err)
+	}
+	hiddenBy := func() *int64 {
+		t.Helper()
+		var by sql.NullInt64
+		if err := rawDB(t, e).QueryRow(`SELECT hidden_by FROM activities WHERE id=5001`).Scan(&by); err != nil {
+			t.Fatal(err)
+		}
+		if !by.Valid {
+			return nil
+		}
+		return &by.Int64
+	}
+
+	if n, err := e.svc.applyDuplicates(ctx, in, in); err != nil || n != 0 {
+		t.Errorf("applyDuplicates = %d, %v, want 0 changes", n, err)
+	}
+	if by := hiddenBy(); by == nil || *by != -777 {
+		t.Errorf("garmin copy hidden by %v, want -777 (its hider is live)", by)
+	}
+
+	if err := e.db.MarkActivityDeleted(ctx, -777, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.svc.applyDuplicates(ctx, in, in); err != nil || n != 1 {
+		t.Errorf("applyDuplicates after the hider's delete = %d, %v, want 1 change", n, err)
+	}
+	if by := hiddenBy(); by != nil {
+		t.Errorf("garmin copy hidden by %d, want shown (its hider is soft-deleted)", *by)
+	}
+}
+
 // seedDup stores both copies of the session, unmarked.
 func seedDup(t *testing.T, e *env) {
 	t.Helper()

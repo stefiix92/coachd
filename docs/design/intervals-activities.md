@@ -117,8 +117,9 @@ the session.
 The hidden copy is marked with the ID of the copy that hides it (§7). Every read, summary and
 planned-vs-actual match skips it, exactly as they skip a soft-deleted activity. The step is
 recomputed for the window on every sync, so it is idempotent and it reverses itself: when the
-winner is deleted at its source, or a late copy turns out richer, the marks follow. A hidden copy's
-FIT file is still downloaded.
+winner is deleted at its source, or a late copy turns out richer, the marks follow. The two copies
+can carry different local dates: a mark whose winner is dated outside the window stays as long as
+the winner is not deleted. A hidden copy's FIT file is still downloaded.
 
 Two things are accepted **[call]**: when the intervals.icu copy wins, Garmin's derived values for
 that session are not shown; and the post-activity webhook may fire for a copy that a later, richer

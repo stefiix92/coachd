@@ -309,6 +309,17 @@ func (db *DB) ActivitiesForDuplicates(ctx context.Context, from, to civil.Date) 
 		[]any{from.String(), to.String()}, "ORDER BY start_utc, id")
 }
 
+// ActivityNotDeleted reports whether activity id is stored and not
+// soft-deleted, hidden or not.
+func (db *DB) ActivityNotDeleted(ctx context.Context, id int64) (bool, error) {
+	var n int
+	err := db.sql.QueryRowContext(ctx, `SELECT count(*) FROM activities WHERE id=? AND deleted_at IS NULL`, id).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("store: activity not deleted: %w", err)
+	}
+	return n > 0, nil
+}
+
 // SetHiddenBy hides the activity behind the richer copy by, or shows it again
 // when by is nil. It returns ErrNotFound when the row is absent.
 func (db *DB) SetHiddenBy(ctx context.Context, id int64, by *int64) error {

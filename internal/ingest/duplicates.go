@@ -96,8 +96,10 @@ func intervalsRicher(o, g store.Activity) bool {
 
 // applyDuplicates resolves the duplicate pairs dated in [from, to] and writes
 // the marks that differ from the stored ones. It returns how many it changed.
-// One runs at a time, so a sync and a backfill never write marks from views
-// of the store taken before each other's writes.
+// A mark whose hider is dated outside [from, to] (the two copies of a session
+// can carry different local dates) is kept while the hider is not
+// soft-deleted. One runs at a time, so a sync and a backfill never write
+// marks from views of the store taken before each other's writes.
 func (s *Service) applyDuplicates(ctx context.Context, from, to civil.Date) (int, error) {
 	s.dupMu.Lock()
 	defer s.dupMu.Unlock()
@@ -106,11 +108,24 @@ func (s *Service) applyDuplicates(ctx context.Context, from, to civil.Date) (int
 		return 0, err
 	}
 	marks := resolveDuplicates(acts)
+	loaded := make(map[int64]bool, len(acts))
+	for _, a := range acts {
+		loaded[a.ID] = true
+	}
 	changed := 0
 	for _, a := range acts {
 		want := marks[a.ID]
 		if (want == nil) == (a.HiddenBy == nil) && (want == nil || *want == *a.HiddenBy) {
 			continue
+		}
+		if want == nil && !loaded[*a.HiddenBy] {
+			kept, err := s.db.ActivityNotDeleted(ctx, *a.HiddenBy)
+			if err != nil {
+				return changed, err
+			}
+			if kept {
+				continue
+			}
 		}
 		if err := s.db.SetHiddenBy(ctx, a.ID, want); err != nil {
 			return changed, err
