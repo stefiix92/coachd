@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -1042,5 +1043,45 @@ func TestDrainSkipsIntervalsWhenOff(t *testing.T) {
 	count, _ := attr(drains[0], "count")
 	if out != OutcomeOK || count != "1" {
 		t.Errorf("drain outcome %q count %q, want ok 1", out, count)
+	}
+}
+
+// A hidden copy's FIT is still downloaded with its detail, but Events hears
+// only of the shown copy of a session, as a hidden copy is skipped like a
+// soft-deleted one.
+func TestDrainTellsEventsOfShownCopyOnly(t *testing.T) {
+	e, fi := dupSetup(t, fp(200), nil) // tie on power: the Garmin copy 5001 wins, i777 is hidden
+	e.fake.fit[5001] = buildFIT(t, 600)
+	fi.files["i777"] = buildFIT(t, 600)
+	ev := &recordEvents{db: e.db}
+	e.svc.opts.Events = ev
+	mustSync(t, e)
+	var by sql.NullInt64
+	if err := rawDB(t, e).QueryRow(`SELECT hidden_by FROM activities WHERE id=-777`).Scan(&by); err != nil || !by.Valid || by.Int64 != 5001 {
+		t.Fatalf("precondition: intervals copy hidden_by = %v, %v, want 5001", by, err)
+	}
+	e.svc.drainFIT(context.Background())
+
+	wantFIT(t, e, 5001, store.FITStored, "fit/2026/5001.fit", 0)
+	var status, rel string
+	if err := rawDB(t, e).QueryRow(`SELECT fit_status, fit_path FROM activities WHERE id=-777`).Scan(&status, &rel); err != nil ||
+		status != string(store.FITStored) || rel != "fit/2026/i777.fit" {
+		t.Fatalf("hidden copy fit %q path %q, %v; want stored fit/2026/i777.fit", status, rel, err)
+	}
+	var hiddenDetail int // reads skip a hidden copy, so count its row directly
+	if err := rawDB(t, e).QueryRow(`SELECT COUNT(*) FROM activity_detail WHERE activity_id=-777`).Scan(&hiddenDetail); err != nil {
+		t.Fatal(err)
+	}
+	if !hasDetail(t, e, 5001) || hiddenDetail != 1 {
+		t.Errorf("detail: shown %v, hidden rows %d; want both stored", hasDetail(t, e, 5001), hiddenDetail)
+	}
+	var pair []int64
+	for _, id := range ev.ids {
+		if id == 5001 || id == -777 {
+			pair = append(pair, id)
+		}
+	}
+	if !slices.Equal(pair, []int64{5001}) {
+		t.Fatalf("events for the session %v, want only the shown copy 5001", pair)
 	}
 }

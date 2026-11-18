@@ -69,8 +69,8 @@ type Options struct {
 
 // Events is told about an activity once its FIT file is stored (with its
 // detail) or confirmed unavailable, when the activity started within
-// recentActivity: a backfill of old activities tells it nothing. It must not
-// block.
+// recentActivity and is not a hidden copy: a backfill of old activities tells
+// it nothing. It must not block.
 type Events interface {
 	ActivityStored(ctx context.Context, a store.Activity)
 }
