@@ -1243,9 +1243,8 @@ func TestServeIntervalsActivity(t *testing.T) {
 	if a := acts.Activities[0]; a.ID != -55751783 || a.Source != "intervals_icu" || a.Sport != "cycling" {
 		t.Fatalf("activity %+v, want id -55751783, source intervals_icu, sport cycling", a)
 	}
-	if types := syncTypes(t, cs); !slices.Contains(types, "intervals_activities") {
-		t.Errorf("get_status data types %v lack intervals_activities", types)
-	}
+	// The ride is stored before the type's sync state is written.
+	eventually(t, "intervals_activities in get_status", func() bool { return slices.Contains(syncTypes(t, cs), "intervals_activities") })
 	eventually(t, "the FIT download", func() bool { _, files, _, _ := fake.counts(); return files > 0 })
 	if lists, _, rest, bad := fake.counts(); lists != 1 || rest != 0 || bad != 0 {
 		t.Errorf("intervals.icu saw %d list, %d other and %d requests without the key or agent; want 1, 0, 0", lists, rest, bad)
