@@ -357,7 +357,8 @@ func TestSyncIntervalsFirstWindowIsBackfillDays(t *testing.T) {
 	mustSync(t, e)
 	e.clock.Set(testNow.Add(time.Hour))
 	mustSync(t, e)
-	want := []dateRange{{testToday.AddDays(-120), testToday}, {testToday.AddDays(-activityMinDays), testToday}}
+	tomorrow := testToday.AddDays(1) // newest is the day after the window
+	want := []dateRange{{testToday.AddDays(-120), tomorrow}, {testToday.AddDays(-activityMinDays), tomorrow}}
 	if r := fi.rangesOf(); !equalRanges(r, want) {
 		t.Errorf("ranges = %v, want %v (BackfillDays first, then the 14-day window)", r, want)
 	}
@@ -372,8 +373,31 @@ func TestSyncIntervalsFirstWindowIsBackfillDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustSync(t, e)
-	if r := fi.rangesOf(); !equalRanges(r, []dateRange{{testToday.AddDays(-22), testToday}}) {
-		t.Errorf("ranges after a 20-day gap = %v, want [{%v %v}]", r, testToday.AddDays(-22), testToday)
+	if r := fi.rangesOf(); !equalRanges(r, []dateRange{{testToday.AddDays(-22), tomorrow}}) {
+		t.Errorf("ranges after a 20-day gap = %v, want [{%v %v}]", r, testToday.AddDays(-22), tomorrow)
+	}
+}
+
+// The list call asks for the day after the window's end as newest, in case
+// intervals.icu reads newest as that day's midnight. The deletion probe still
+// keys on the real window: an activity stored for tomorrow is not probed.
+func TestSyncIntervalsNewestIsDayAfterWindow(t *testing.T) {
+	fi := newFakeIntervals()
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	last := testNow.Add(-time.Hour)
+	if err := e.db.PutSyncState(context.Background(), store.SyncState{
+		DataType: TypeIntervals, LastAttemptAt: &last, LastSuccessAt: &last, LastOutcome: OutcomeOK,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	storeIntervals(t, e, testToday.AddDays(1), "i900") // stored, unlisted, gone upstream
+	fi.deleted["i900"] = true
+	mustSync(t, e)
+	if r := fi.rangesOf(); !equalRanges(r, []dateRange{{testToday.AddDays(-activityMinDays), testToday.AddDays(1)}}) {
+		t.Errorf("ranges = %v, want [{%v %v}] (newest is today + 1)", r, testToday.AddDays(-activityMinDays), testToday.AddDays(1))
+	}
+	if p := fi.probed(); len(p) != 0 {
+		t.Errorf("probes = %v, want none (the probe keys on [from, today])", p)
 	}
 }
 

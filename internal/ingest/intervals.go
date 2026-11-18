@@ -119,13 +119,15 @@ func MapIntervalsActivity(a intervals.Activity, tz *time.Location) (store.Activi
 // fetchIntervals lists intervals.icu activities for [from, to] in one call
 // and stores every entry the import rules admit. Excluded entries count as
 // neither stored nor skipped. ids holds every listed i<digits> ID, imported
-// or not, for the deletion probe.
+// or not, for the deletion probe. The call asks for to + 1 day as newest:
+// whether intervals.icu reads newest as the start of that day is unconfirmed,
+// and an extra day costs nothing but a duplicate that is stored once.
 func (s *Service) fetchIntervals(ctx context.Context, from, to civil.Date) (fetched, error) {
 	f := fetched{ids: map[int64]bool{}}
 	if err := s.checkIntervalsPause(); err != nil {
 		return f, err
 	}
-	items, err := s.opts.Intervals.ListActivities(ctx, from, to)
+	items, err := s.opts.Intervals.ListActivities(ctx, from, to.AddDays(1))
 	if err != nil {
 		return f, s.intervalsErr(ctx, err)
 	}

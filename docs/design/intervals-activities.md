@@ -174,6 +174,9 @@ span like every other type.
 - **Window**: as for Garmin activities (`today − 14`, or two days before the last success if that is
   earlier). With no success yet, the window starts at `today − COACHD_BACKFILL_DAYS`, in one list
   call: that is the backfill. **[call]** FIT files then arrive through the worker at its usual pace.
+  The list call asks for the day after the window's last day as `newest`, since it is unconfirmed
+  whether intervals.icu reads `newest` as the start of that day; an activity listed twice is stored
+  once, and the deletion probe and the duplicate step keep to the window itself.
 - **Independence**: a Garmin 429 still skips the remaining Garmin types, as today, but not this
   one, and an intervals.icu 429 pauses only
   intervals.icu calls, until `Retry-After` (capped as Garmin's pause is). An unauthorized answer is
