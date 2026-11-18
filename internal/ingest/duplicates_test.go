@@ -209,6 +209,54 @@ func TestSyncDuplicatesIdempotent(t *testing.T) {
 	}
 }
 
+// A Garmin copy that arrives through the backfill pairs with the intervals.icu
+// copy already stored for that old date: only the richer copy is live, and the
+// summaries the backfill recomputes count it alone.
+func TestBackfillHidesDuplicate(t *testing.T) {
+	day := testToday.AddDays(-30)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name        string
+		garminPower *float64
+		shown       int64
+		hidden      int64
+		longestRunM float64
+	}{
+		{"both power: garmin shown", fp(250), 6001, -888, 8000},
+		{"intervals alone has power: intervals shown", nil, -888, 6001, 30000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newFake()
+			dto := activityDTO(6001, "running", day.String()+" 07:00:00", day.String()+" 05:00:00", 8000, false)
+			dto.AvgPower = tc.garminPower
+			g.activities = append(g.activities, item(t, dto))
+			e := newIntervalsEnv(t, g, newFakeIntervals(), nil)
+			it := intervalsItem(t, intervalsAct("i888", "Run", day.String()+"T07:00:00", day.String()+"T05:00:00Z"))
+			a, err := MapIntervalsActivity(it.V, e.svc.opts.TZ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.db.UpsertActivity(ctx, a, it.Raw); err != nil {
+				t.Fatal(err)
+			}
+			mustBackfill(t, e)
+			if _, err := e.db.GetActivity(ctx, tc.shown); err != nil {
+				t.Errorf("richer copy %d: %v, want live", tc.shown, err)
+			}
+			if _, err := e.db.GetActivity(ctx, tc.hidden); !errors.Is(err, store.ErrNotFound) {
+				t.Errorf("poorer copy %d: err = %v, want hidden", tc.hidden, err)
+			}
+			ms, err := e.db.ListDayMetrics(ctx, day, day)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ms) != 1 || ms[0].LongestRun7dM != tc.longestRunM {
+				t.Errorf("day metrics = %+v, want longest run 7d %v (the shown copy)", ms, tc.longestRunM)
+			}
+		})
+	}
+}
+
 // seedDup stores both copies of the session, unmarked.
 func seedDup(t *testing.T, e *env) {
 	t.Helper()

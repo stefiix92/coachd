@@ -96,7 +96,11 @@ func intervalsRicher(o, g store.Activity) bool {
 
 // applyDuplicates resolves the duplicate pairs dated in [from, to] and writes
 // the marks that differ from the stored ones. It returns how many it changed.
+// One runs at a time, so a sync and a backfill never write marks from views
+// of the store taken before each other's writes.
 func (s *Service) applyDuplicates(ctx context.Context, from, to civil.Date) (int, error) {
+	s.dupMu.Lock()
+	defer s.dupMu.Unlock()
 	acts, err := s.db.ActivitiesForDuplicates(ctx, from, to)
 	if err != nil {
 		return 0, err

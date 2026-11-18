@@ -153,6 +153,7 @@ type Service struct {
 	intervalsPauseUntil time.Time // no intervals.icu calls before this instant
 
 	stateMu sync.Mutex // serialises sync_state read-modify-write
+	dupMu   sync.Mutex // serialises applyDuplicates: Sync and Backfill both run it
 
 	reqMu       sync.Mutex
 	lastRequest time.Time // last RequestSync that ran a sync

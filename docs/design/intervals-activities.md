@@ -195,7 +195,9 @@ span like every other type.
   **[call]** No canary is needed as for Garmin: the listing itself just succeeded with the same key.
 - **Restored**: an activity listed again after a soft delete is live again, as for Garmin.
 - **Duplicates**: the step of §6 runs after this type, when it and `activities` both finished
-  without error in this sync; otherwise the marks stay as they were.
+  without error in this sync; otherwise the marks stay as they were. It also runs over each chunk
+  of Garmin's activities backfill once the chunk is stored, so an older session both sources hold
+  is shown once too; the backfill's closing recompute covers those dates.
 - **FIT worker**: one queue, both sources. Each pending activity is downloaded from its own source;
   a pause on one source leaves the other draining. The file goes through the same integrity check,
   decoding and detail storage as a Garmin FIT. Its file is named by `source_id`
