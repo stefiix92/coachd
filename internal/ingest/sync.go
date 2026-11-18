@@ -212,6 +212,7 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 	res := SyncResult{Outcomes: map[string]string{}, Items: map[string]int{}}
 	rateLimited, anyOK, stored := false, false, 0 // rateLimited: Garmin only
 	var all fetched                               // only its earliest date is used
+	dupFrom, dupOK := s.duplicatesWindow(ctx, today)
 	for _, dt := range s.syncTypes() {
 		if err := ctx.Err(); err != nil {
 			failSpan(span, err)
@@ -225,6 +226,11 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 		all.storedOn(f.earliest)
 	}
 	span.SetAttributes(attribute.String("outcome", worstOutcome(res.Outcomes)), attribute.Int("count", stored))
+	if dupOK && res.Outcomes[TypeActivities] == OutcomeOK && res.Outcomes[TypeIntervals] == OutcomeOK {
+		if s.resolveDuplicatesStep(ctx, dupFrom, today) > 0 {
+			anyOK = true
+		}
+	}
 	if anyOK {
 		if err := summaries.Recompute(ctx, s.db, today, recomputeDays(today, all.earliest)); err != nil {
 			s.log.ErrorContext(ctx, "summaries recompute failed", "data_type", "summaries", "outcome", OutcomeError,
@@ -232,6 +238,27 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// duplicatesWindow is the start of the range the duplicate step covers, the
+// earlier of the activities and intervals windows, taken before the sync moves
+// them. ok is false when the intervals source is off or a window is unknown.
+func (s *Service) duplicatesWindow(ctx context.Context, today civil.Date) (from civil.Date, ok bool) {
+	if s.opts.Intervals == nil {
+		return civil.Date{}, false
+	}
+	a, err := s.windowStart(ctx, TypeActivities, today)
+	if err != nil {
+		return civil.Date{}, false
+	}
+	i, err := s.windowStart(ctx, TypeIntervals, today)
+	if err != nil {
+		return civil.Date{}, false
+	}
+	if i.Before(a) {
+		a = i
+	}
+	return a, true
 }
 
 // recomputeDays is how many days the post-sync recompute covers: summaryDays,

@@ -274,7 +274,7 @@ func TestMapIntervalsActivity(t *testing.T) {
 func TestSyncIntervalsStores(t *testing.T) {
 	fi := newFakeIntervals()
 	ride := intervalsItem(t, rideOn("i55751783", civil.Date{Year: 2026, Month: 10, Day: 21}))
-	run := intervalsItem(t, intervalsAct("i55751790", "Run", "2026-10-22T06:30:00", "2026-10-22T04:30:00Z"))
+	run := intervalsItem(t, intervalsAct("i55751790", "Run", "2026-10-22T10:30:00", "2026-10-22T08:30:00Z")) // clear of the Garmin run, so no duplicate
 	stub := intervalsItem(t, intervals.Activity{ID: "16123456789", Source: "STRAVA"})
 	fi.setItems(ride, run, stub)
 	rec := newLogRecorder()
@@ -309,7 +309,7 @@ func TestSyncIntervalsStores(t *testing.T) {
 		t.Errorf("activities = %d, want 3 Garmin + 2 intervals.icu", c.activities)
 	}
 	st := syncState(t, e, TypeIntervals)
-	wantFresh := time.Date(2026, 10, 22, 4, 30, 0, 0, time.UTC)
+	wantFresh := time.Date(2026, 10, 22, 8, 30, 0, 0, time.UTC)
 	if st.LastOutcome != OutcomeOK || st.LastSuccessAt == nil || !st.LastSuccessAt.Equal(testNow) ||
 		st.FreshestDataAt == nil || !st.FreshestDataAt.Equal(wantFresh) {
 		t.Errorf("state = %+v, want ok at %v, freshest %v", st, testNow, wantFresh)
