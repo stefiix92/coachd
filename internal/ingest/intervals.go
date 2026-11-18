@@ -216,31 +216,16 @@ func (s *Service) reconcileIntervalsActivities(ctx context.Context, from, to civ
 		if exists {
 			continue
 		}
-		a, err := s.db.GetActivity(ctx, id)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
+		date, ok, err := s.softDeleteActivity(ctx, TypeIntervals, id)
 		if err != nil {
 			return deleted, earliest, err
 		}
-		at := s.now()
-		err = s.db.MarkActivityDeleted(ctx, id, at)
-		if errors.Is(err, store.ErrNotFound) {
+		if !ok {
 			continue
-		}
-		if err != nil {
-			return deleted, earliest, err
 		}
 		deleted++
-		if earliest == (civil.Date{}) || a.Date.Before(earliest) {
-			earliest = a.Date
-		}
-		s.log.InfoContext(ctx, "reconcile deleted activity", "data_type", TypeIntervals, "activity_id", id,
-			"calendar_date", a.Date.String(), "outcome", "deleted")
-		if err := s.db.AppendAudit(ctx, store.AuditEvent{At: at, Lane: "ingest", Actor: "ingest",
-			Event: "activity_deleted", Target: strconv.FormatInt(id, 10), Outcome: OutcomeOK}); err != nil {
-			s.log.WarnContext(ctx, "audit write failed", "data_type", TypeIntervals, "activity_id", id,
-				"error_class", errorClass(err), "error", err)
+		if earliest == (civil.Date{}) || date.Before(earliest) {
+			earliest = date
 		}
 	}
 	return deleted, earliest, nil

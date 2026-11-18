@@ -116,31 +116,46 @@ func (s *Service) reconcileActivities(ctx context.Context, from, to civil.Date, 
 			}
 			verified = true
 		}
-		a, err := s.db.GetActivity(ctx, id)
-		if errors.Is(err, store.ErrNotFound) {
-			continue // already gone or soft-deleted
-		}
+		_, ok, err := s.softDeleteActivity(ctx, TypeActivities, id)
 		if err != nil {
 			return deleted, err
 		}
-		at := s.now()
-		err = s.db.MarkActivityDeleted(ctx, id, at)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return deleted, err
-		}
-		deleted++
-		s.log.InfoContext(ctx, "reconcile deleted activity", "data_type", TypeActivities, "activity_id", id,
-			"calendar_date", a.Date.String(), "outcome", "deleted")
-		if err := s.db.AppendAudit(ctx, store.AuditEvent{At: at, Lane: "ingest", Actor: "ingest",
-			Event: "activity_deleted", Target: strconv.FormatInt(id, 10), Outcome: OutcomeOK}); err != nil {
-			s.log.WarnContext(ctx, "audit write failed", "data_type", TypeActivities, "activity_id", id,
-				"error_class", errorClass(err), "error", err)
+		if ok {
+			deleted++
 		}
 	}
 	return deleted, nil
+}
+
+// softDeleteActivity soft-deletes live activity id, confirmed gone at its
+// source: it marks it deleted, logs "reconcile deleted activity" under data
+// type dt and writes an "activity_deleted" audit row (a failed audit write is
+// logged, not returned). ok is false, with a nil error, when the activity is
+// no longer live (already gone or soft-deleted); date is its date when ok.
+func (s *Service) softDeleteActivity(ctx context.Context, dt string, id int64) (date civil.Date, ok bool, err error) {
+	a, err := s.db.GetActivity(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return civil.Date{}, false, nil
+	}
+	if err != nil {
+		return civil.Date{}, false, err
+	}
+	at := s.now()
+	err = s.db.MarkActivityDeleted(ctx, id, at)
+	if errors.Is(err, store.ErrNotFound) {
+		return civil.Date{}, false, nil
+	}
+	if err != nil {
+		return civil.Date{}, false, err
+	}
+	s.log.InfoContext(ctx, "reconcile deleted activity", "data_type", dt, "activity_id", id,
+		"calendar_date", a.Date.String(), "outcome", "deleted")
+	if err := s.db.AppendAudit(ctx, store.AuditEvent{At: at, Lane: "ingest", Actor: "ingest",
+		Event: "activity_deleted", Target: strconv.FormatInt(id, 10), Outcome: OutcomeOK}); err != nil {
+		s.log.WarnContext(ctx, "audit write failed", "data_type", dt, "activity_id", id,
+			"error_class", errorClass(err), "error", err)
+	}
+	return a.Date, true, nil
 }
 
 // probe waits BackfillDelay, checks the pause, then asks Garmin whether id
