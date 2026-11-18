@@ -57,6 +57,28 @@ func TestMapActivityUnitsAndLocalDate(t *testing.T) {
 	}
 }
 
+func TestMapActivityHasPower(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		watts *float64
+		want  bool
+	}{
+		{"power", fp(185.4), true},
+		{"zero", fp(0), false},
+		{"absent", nil, false},
+	} {
+		dto := activityDTO(7, "virtual_ride", "2026-10-22 07:00:00", "2026-10-22 05:00:00", 30000, false)
+		dto.AvgPower = tc.watts
+		a, err := MapActivity(dto, bratislava(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.HasPower != tc.want || a.Source != store.SourceGarmin || a.SourceID != "" {
+			t.Errorf("%s: has_power/source/source_id = %v %q %q, want %v garmin \"\"", tc.name, a.HasPower, a.Source, a.SourceID, tc.want)
+		}
+	}
+}
+
 func TestMapActivityManualFITUnavailable(t *testing.T) {
 	a, err := MapActivity(activityDTO(7, "running", "2026-10-22 07:00:00", "2026-10-22 05:00:00", 5000, true), bratislava(t))
 	if err != nil {

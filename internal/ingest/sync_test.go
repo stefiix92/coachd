@@ -12,6 +12,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/garmin"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/store"
 )
 
@@ -368,6 +369,130 @@ func TestSyncRateLimitedInPastStillSkipsRemainingTypes(t *testing.T) {
 	}
 	if n := f.count(mHRV) + f.count(mDaily) + f.count(mWeight); n != 0 {
 		t.Fatalf("types after the 429 made %d calls, want 0", n)
+	}
+}
+
+func TestSyncIntervalsOff(t *testing.T) {
+	e := newEnv(t, seededFake(t), nil)
+	res := mustSync(t, e)
+	if o, ok := res.Outcomes[TypeIntervals]; ok {
+		t.Errorf("outcome[%s] = %q, want no entry", TypeIntervals, o)
+	}
+	if len(res.Outcomes) != len(allTypes) {
+		t.Errorf("outcomes = %v, want the Garmin types only", res.Outcomes)
+	}
+	sts, err := e.db.ListSyncStates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range sts {
+		if st.DataType == TypeIntervals {
+			t.Errorf("sync_state row %+v, want none", st)
+		}
+	}
+}
+
+func TestSyncGarmin429DoesNotSkipIntervals(t *testing.T) {
+	g := seededFake(t)
+	retryAt := testNow.Add(time.Hour)
+	g.setErr(mSearch, &garmin.RateLimitedError{RetryAt: retryAt})
+	fi := newFakeIntervals()
+	fi.setItems(intervalsItem(t, rideOn("i55751783", testToday.AddDays(-1))))
+	e := newIntervalsEnv(t, g, fi, nil)
+	res := mustSync(t, e)
+	for _, dt := range allTypes {
+		if res.Outcomes[dt] != OutcomeRateLimited {
+			t.Errorf("outcome[%s] = %q, want garmin_rate_limited", dt, res.Outcomes[dt])
+		}
+	}
+	if res.Outcomes[TypeIntervals] != OutcomeOK || res.Items[TypeIntervals] != 1 || fi.count(miList) != 1 {
+		t.Fatalf("intervals outcome = %q items = %d list calls = %d, want ok 1 1",
+			res.Outcomes[TypeIntervals], res.Items[TypeIntervals], fi.count(miList))
+	}
+	if _, err := e.db.GetActivity(context.Background(), -55751783); err != nil {
+		t.Fatalf("intervals activity: %v", err)
+	}
+
+	// Still inside Garmin's pause: Garmin makes no call, intervals.icu syncs.
+	g.resetCalls()
+	e.clock.Set(retryAt.Add(-time.Minute))
+	res = mustSync(t, e)
+	if n := g.totalCalls(); n != 0 {
+		t.Errorf("Garmin calls while paused = %d, want 0", n)
+	}
+	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 2 {
+		t.Errorf("intervals outcome = %q list calls = %d, want ok 2", res.Outcomes[TypeIntervals], fi.count(miList))
+	}
+}
+
+func TestSyncIntervals429DoesNotTouchGarmin(t *testing.T) {
+	fi := newFakeIntervals()
+	retryAt := testNow.Add(time.Hour)
+	fi.setErr(miList, &intervals.RateLimitedError{RetryAt: retryAt})
+	rec := newLogRecorder()
+	e := newIntervalsEnv(t, seededFake(t), fi, rec)
+	res := mustSync(t, e)
+	if res.Outcomes[TypeIntervals] != OutcomeIntervalsRateLimited {
+		t.Fatalf("intervals outcome = %q, want rate_limited", res.Outcomes[TypeIntervals])
+	}
+	for _, dt := range allTypes {
+		if res.Outcomes[dt] != OutcomeOK {
+			t.Errorf("outcome[%s] = %q, want ok", dt, res.Outcomes[dt])
+		}
+	}
+	if st := syncState(t, e, TypeIntervals); st.LastOutcome != OutcomeIntervalsRateLimited || st.LastSuccessAt != nil {
+		t.Errorf("intervals state = %+v", st)
+	}
+	if _, paused := e.svc.pausedUntil(); paused {
+		t.Error("Garmin paused by an intervals.icu 429")
+	}
+	if until, paused := e.svc.intervalsPausedUntil(); !paused || !until.Equal(retryAt) {
+		t.Errorf("intervals paused until %v (%v), want %v", until, paused, retryAt)
+	}
+	if n := len(rec.lines(t, "garmin rate limited")); n != 0 {
+		t.Errorf("garmin rate limited logged %d times, want 0", n)
+	}
+
+	// Inside the pause: no intervals.icu call, Garmin types still sync.
+	fi.setErr(miList, nil)
+	e.clock.Set(retryAt.Add(-time.Minute))
+	res = mustSync(t, e)
+	if res.Outcomes[TypeIntervals] != OutcomeIntervalsRateLimited || fi.count(miList) != 1 {
+		t.Errorf("paused: intervals outcome = %q list calls = %d, want rate_limited 1", res.Outcomes[TypeIntervals], fi.count(miList))
+	}
+	if res.Outcomes[TypeSleep] != OutcomeOK || res.Outcomes[TypeHRV] != OutcomeOK {
+		t.Errorf("paused: sleep/hrv = %q %q, want ok", res.Outcomes[TypeSleep], res.Outcomes[TypeHRV])
+	}
+
+	e.clock.Set(retryAt)
+	res = mustSync(t, e)
+	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 2 {
+		t.Errorf("after pause: intervals outcome = %q list calls = %d, want ok 2", res.Outcomes[TypeIntervals], fi.count(miList))
+	}
+}
+
+func TestSyncIntervalsUnauthorizedLeavesGarminOK(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setErr(miList, intervals.ErrUnauthorized)
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	storeIntervals(t, e, testToday.AddDays(-2), "i101") // unlisted, but the listing failed
+	res := mustSync(t, e)
+	if res.Outcomes[TypeIntervals] != OutcomeAuthFailed {
+		t.Fatalf("intervals outcome = %q, want auth_failed", res.Outcomes[TypeIntervals])
+	}
+	for _, dt := range allTypes {
+		if res.Outcomes[dt] != OutcomeOK {
+			t.Errorf("outcome[%s] = %q, want ok", dt, res.Outcomes[dt])
+		}
+	}
+	if st := syncState(t, e, TypeIntervals); st.LastOutcome != OutcomeAuthFailed || st.LastSuccessAt != nil || st.LastAttemptAt == nil {
+		t.Errorf("intervals state = %+v", st)
+	}
+	if p := fi.probed(); len(p) != 0 {
+		t.Errorf("probes after a failed listing = %v, want none", p)
+	}
+	if _, err := e.db.GetActivity(context.Background(), -101); err != nil {
+		t.Errorf("stored activity: %v, want kept", err)
 	}
 }
 
