@@ -635,3 +635,14 @@ func TestListActivitiesCursorNegativeID(t *testing.T) {
 		t.Fatalf("paged ids = %v, want [7 -5 -900]", got)
 	}
 }
+
+// With a table alias the live condition qualifies every column it reads, so a
+// join never relies on those names being unique across its tables.
+func TestLiveActivityQualifiesEveryColumn(t *testing.T) {
+	if got, want := liveActivityIn("a"), "a.deleted_at IS NULL AND a.hidden_by IS NULL"; got != want {
+		t.Errorf(`liveActivityIn("a") = %q, want %q`, got, want)
+	}
+	if want := "deleted_at IS NULL AND hidden_by IS NULL"; liveActivity != want {
+		t.Errorf("liveActivity = %q, want %q", liveActivity, want)
+	}
+}

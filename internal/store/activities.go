@@ -144,10 +144,20 @@ func sptr(n sql.NullString) *string {
 	return &n.String
 }
 
-// liveActivity is the condition every read of activities applies: rows
+// liveActivityIn is the condition every read of activities applies: rows
 // soft-deleted by MarkActivityDeleted, and the poorer copy of a session both
-// sources recorded (hidden_by set), are invisible.
-const liveActivity = `deleted_at IS NULL AND hidden_by IS NULL`
+// sources recorded (hidden_by set), are invisible. Every column it reads is
+// qualified by table, the activities table's alias in a join; "" leaves them
+// bare.
+func liveActivityIn(table string) string {
+	if table != "" {
+		table += "."
+	}
+	return table + "deleted_at IS NULL AND " + table + "hidden_by IS NULL"
+}
+
+// liveActivity is liveActivityIn for a query on activities alone.
+var liveActivity = liveActivityIn("")
 
 // GetActivity returns a live activity, or ErrNotFound when absent or soft-deleted.
 func (db *DB) GetActivity(ctx context.Context, id int64) (Activity, error) {
