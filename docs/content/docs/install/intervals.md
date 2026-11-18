@@ -56,6 +56,6 @@ So a MyWhoosh ride that the watch also recorded, with heart rate only, shows as 
 
 ## When it fails
 
-intervals.icu and Garmin sync independently: a failure of one never stops the other, and a rate limit from intervals.icu pauses only intervals.icu calls. `get_status` shows `auth_failed` for a rejected key and `rate_limited` while paused. The `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) leaves intervals.icu out; the dashboard's **Last success age by data type** panel shows it.
+intervals.icu and Garmin sync independently: a failure of one never stops the other, and a rate limit from intervals.icu pauses only intervals.icu calls. `get_status` shows `auth_failed` on `intervals_activities` for a rejected key and `rate_limited` while paused; `request_sync` then answers `auth_failed` or `failed`, so check `get_status` for which data type failed ([troubleshooting](/docs/operations/troubleshooting/)). The `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) leaves intervals.icu out; the dashboard's **Last success age by data type** panel shows it.
 
 To turn it off, remove the override and run `docker compose up -d --force-recreate coachd`. Activities already stored stay; `get_status` stops listing `intervals_activities`. Turned on again, the first sync reaches back `COACHD_BACKFILL_DAYS` again, updating what is already stored rather than adding it twice.

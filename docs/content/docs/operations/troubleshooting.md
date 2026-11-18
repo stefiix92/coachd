@@ -5,16 +5,18 @@ weight: 5
 
 Symptoms, causes and fixes. coachd's log is `docker compose logs coachd`; it carries IDs, outcomes and error classes, never health data. For the watch app's own messages, see [pairing](/docs/watch/pairing/) and [status messages](/docs/watch/status-messages/).
 
-## Garmin sync
+## Garmin and intervals.icu sync
 
-`get_status` shows each data type's `last_outcome` and `age_hours`, and the key's `days_left`. `request_sync` answers with an `outcome` and `next_allowed_at`.
+`get_status` shows each data type's `last_outcome` and `age_hours`, and the Garmin key's `days_left`. `request_sync` answers with an `outcome` and `next_allowed_at`; its `auth_failed` and `failed` can come from either source, so check `get_status` for which data type failed.
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `garmin_rate_limited`; log `garmin rate limited` | Garmin answered 429. coachd pauses every Garmin call until its `Retry-After` (at most 24 h). | Wait: `next_allowed_at` says until when. |
 | `request_sync` says `rate_limited` | The agent asked again within `COACHD_SYNC_MIN_INTERVAL` (10 min). | Wait until `next_allowed_at`. |
 | `request_sync` says `already_running` | A sync is already running. | Ask again shortly. |
-| `auth_failed` | Garmin refused the key: expired or revoked. `garmin_key.days_left` is negative once expired. | [Renew the key](/docs/install/garmin-key/#renew-the-key) on the page. |
+| `auth_failed` on a Garmin data type | Garmin refused the key: expired or revoked. `garmin_key.days_left` is negative once expired. | [Renew the key](/docs/install/garmin-key/#renew-the-key) on the page. |
+| `auth_failed` on `intervals_activities` | intervals.icu refused its key: wrong, or deleted in intervals.icu. Garmin keeps syncing. | Create a new key in intervals.icu, store it as in [intervals.icu](/docs/install/intervals/), then `docker compose up -d --force-recreate coachd`. |
+| `rate_limited` on `intervals_activities`; log `intervals.icu rate limited` | intervals.icu answered 429. coachd pauses only intervals.icu calls until its `Retry-After` (at most 24 h); Garmin keeps syncing, and `request_sync` says `failed`. | Wait: the first sync after the pause lists again. |
 | A `stale_data` warning on a proposal | No successful sync of Garmin's data types for over 24 h (intervals.icu's does not count). | Check `get_status` and the log; the `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) fires after 3 h. |
 | `get_activity` returns no laps or series | `has_fit` is false: the FIT file isn't stored yet. | It downloads after the activity syncs; ask again later. |
 | "Garmin refused this key; nothing changed" on **Garmin key** | The new key is wrong or not active yet. | Copy it again from Garmin's page. coachd keeps the key it had. |
