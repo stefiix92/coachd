@@ -1268,6 +1268,38 @@ func TestServeWithoutIntervalsKey(t *testing.T) {
 	}
 }
 
+// Turning the source off drops its sync row at the next start, so get_status
+// stops listing intervals_activities; the activities it stored stay.
+func TestServeDropsIntervalsStateWhenOff(t *testing.T) {
+	cfg := testCfg(t)
+	cfg.IntervalsAPIKey = intervalsKey
+	fake := newFakeIntervals(t, cfg.TZ, nil, nil)
+	tok := makeToken(t, cfg, "read")
+	r := startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg))
+	cs := privateSession(t, r, tok)
+	eventually(t, "the intervals.icu sync", func() bool { return slices.Contains(syncTypes(t, cs), "intervals_activities") })
+	cs.Close()
+	if err := r.stop(t); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.IntervalsAPIKey = ""
+	cs = privateSession(t, startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg)), tok)
+	if types := syncTypes(t, cs); slices.Contains(types, "intervals_activities") {
+		t.Errorf("get_status data types %v still include intervals_activities", types)
+	}
+	today := civil.Of(time.Now(), cfg.TZ)
+	var acts struct {
+		Activities []struct {
+			ID int64 `json:"id"`
+		} `json:"activities"`
+	}
+	callTool(t, cs, "list_activities", map[string]any{"from": today.AddDays(-2).String(), "to": today.String()}, &acts)
+	if len(acts.Activities) != 1 || acts.Activities[0].ID != -55751783 {
+		t.Errorf("activities %+v, want the stored ride -55751783", acts.Activities)
+	}
+}
+
 // Demo mode ignores the key with one log line and never calls intervals.icu.
 func TestServeDemoIgnoresIntervalsKey(t *testing.T) {
 	cfg := demoCfg(t)

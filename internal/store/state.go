@@ -55,6 +55,14 @@ func (db *DB) PutSyncState(ctx context.Context, s SyncState) error {
 	return nil
 }
 
+// DeleteSyncState removes dataType's state; an absent one is no error.
+func (db *DB) DeleteSyncState(ctx context.Context, dataType string) error {
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM sync_state WHERE data_type=?`, dataType); err != nil {
+		return fmt.Errorf("store: delete sync state: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) ListSyncStates(ctx context.Context) ([]SyncState, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT `+syncCols+` FROM sync_state ORDER BY data_type`)
 	if err != nil {
