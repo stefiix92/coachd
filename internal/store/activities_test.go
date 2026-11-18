@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -325,7 +326,7 @@ func TestSoftDeletedActivityExcludedFromReads(t *testing.T) {
 	if len(vols) != 2 {
 		t.Fatalf("WeeklyVolume = %+v, want running and cycling in one week", vols)
 	}
-	if got, err := db.ActivityIDsInRange(ctx, from, to); err != nil || !slices.Equal(got, []int64{3, 4}) {
+	if got, err := db.ActivityIDsInRange(ctx, SourceGarmin, from, to); err != nil || !slices.Equal(got, []int64{3, 4}) {
 		t.Fatalf("ActivityIDsInRange = %v %v, want [3 4]", got, err)
 	}
 	if got, err := db.ActivitiesNeedingFIT(ctx, 10); err != nil || !slices.Equal(ids(got), []int64{4}) {
@@ -387,7 +388,7 @@ func TestActivityIDsInRange(t *testing.T) {
 	db.UpsertActivity(ctx, mkAct(2, "2026-10-15", SportRunning, 1), nil)
 	db.UpsertActivity(ctx, mkAct(5, "2026-10-23", SportRunning, 1), nil) // last day
 	db.UpsertActivity(ctx, mkAct(6, "2026-10-24", SportRunning, 1), nil) // after
-	got, err := db.ActivityIDsInRange(ctx, d("2026-10-09"), d("2026-10-23"))
+	got, err := db.ActivityIDsInRange(ctx, SourceGarmin, d("2026-10-09"), d("2026-10-23"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +401,7 @@ func TestActivityIDsInRange(t *testing.T) {
 			t.Fatalf("ids = %v, want %v", got, want)
 		}
 	}
-	if got, err := db.ActivityIDsInRange(ctx, d("2026-11-01"), d("2026-11-30")); err != nil || len(got) != 0 {
+	if got, err := db.ActivityIDsInRange(ctx, SourceGarmin, d("2026-11-01"), d("2026-11-30")); err != nil || len(got) != 0 {
 		t.Fatalf("empty range = %v, %v", got, err)
 	}
 }
@@ -434,5 +435,203 @@ func TestMaxHR(t *testing.T) {
 	}
 	if v, err := db.MaxHR(ctx, d("2026-10-11"), d("2026-10-14")); err != nil || v != nil {
 		t.Fatalf("no-hr window = %v, %v", v, err)
+	}
+}
+
+// TestMigrateSourceOnPopulatedDB builds a database at 0001-0015 holding two
+// Garmin rows, one with average power in its raw JSON, then opens it: 0016
+// applies, both rows stay shown Garmin rows and has_power follows the JSON.
+func TestMigrateSourceOnPopulatedDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coachd.db")
+	ctx := context.Background()
+	old, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := old.Exec(q, args...); err != nil {
+			t.Fatalf("%.40s: %v", q, err)
+		}
+	}
+	exec(`CREATE TABLE schema_migrations (version TEXT PRIMARY KEY)`)
+	for _, v := range migrationVersions() {
+		if v >= "0016" {
+			break
+		}
+		body, err := migrationFS.ReadFile("migrations/" + v + ".sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(body))
+		exec(`INSERT INTO schema_migrations(version) VALUES (?)`, v)
+	}
+	ins := `INSERT INTO activities (id, start_local, start_utc, date, week_start, sport, distance_m, raw_json)
+		VALUES (?, '2026-10-20T07:30:00+02:00', '2026-10-20T05:30:00.000000000Z', '2026-10-20', '2026-10-19', 'cycling', 5000, ?)`
+	exec(ins, 1, `{"activityId":1,"avgPower":187.0}`)
+	exec(ins, 2, `{"activityId":2}`)
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for id, wantPower := range map[int64]bool{1: true, 2: false} {
+		a, err := db.GetActivity(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.Source != SourceGarmin || a.SourceID != "" || a.HiddenBy != nil || a.HasPower != wantPower {
+			t.Fatalf("activity %d = source %q sourceID %q hiddenBy %v hasPower %v, want garmin, none, nil, %v",
+				id, a.Source, a.SourceID, a.HiddenBy, a.HasPower, wantPower)
+		}
+	}
+	got, _, err := db.ListActivities(ctx, ActivityQuery{})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("ListActivities = %d rows, %v, want 2", len(got), err)
+	}
+}
+
+func TestUpsertIntervalsActivity(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	a := mkAct(-55751783, "2026-10-20", SportCycling, 40000)
+	a.Source, a.SourceID, a.HasPower = SourceIntervals, "i55751783", true
+	for range 2 {
+		if err := db.UpsertActivity(ctx, a, []byte(`{"id":"i55751783"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	if err := db.sql.QueryRow(`SELECT count(*) FROM activities`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("rows = %d, %v, want 1", n, err)
+	}
+	got, err := db.GetActivity(ctx, -55751783)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != SourceIntervals || got.SourceID != "i55751783" || !got.HasPower || got.HiddenBy != nil {
+		t.Fatalf("round trip = %q %q %v %v", got.Source, got.SourceID, got.HasPower, got.HiddenBy)
+	}
+	// An empty Source is a Garmin row with no source ID.
+	if err := db.UpsertActivity(ctx, mkAct(9, "2026-10-20", SportRunning, 1), nil); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := db.GetActivity(ctx, 9); err != nil || g.Source != SourceGarmin || g.SourceID != "" {
+		t.Fatalf("garmin default = %+v, %v", g, err)
+	}
+}
+
+func TestHiddenActivityInvisible(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	a := mkAct(1, "2026-10-20", SportRunning, 5000)
+	a.AvgHR, a.MaxHR = fp(150.0), fp(177.0)
+	keep := mkAct(2, "2026-10-20", SportRunning, 1000)
+	for _, x := range []Activity{a, keep} {
+		if err := db.UpsertActivity(ctx, x, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.PutActivityDetail(ctx, 1, ActivityDetail{}); err != nil {
+		t.Fatal(err)
+	}
+	from, to := d("2026-10-20"), d("2026-10-20")
+	two := int64(2)
+	if err := db.SetHiddenBy(ctx, 1, &two); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetHiddenBy(ctx, 99, &two); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetHiddenBy absent = %v, want ErrNotFound", err)
+	}
+	check := func(visible bool) {
+		t.Helper()
+		_, getErr := db.GetActivity(ctx, 1)
+		_, detErr := db.GetActivityDetail(ctx, 1)
+		list, _, _ := db.ListActivities(ctx, ActivityQuery{})
+		runs, _ := db.Runs(ctx, from, to)
+		weeks, _ := db.WeeklyVolume(ctx, from, to)
+		maxHR, _ := db.MaxHR(ctx, from, to)
+		wantN, wantDist, wantHR := 1, 1000.0, false
+		if visible {
+			wantN, wantDist, wantHR = 2, 6000.0, true
+		}
+		var dist float64
+		for _, w := range weeks {
+			dist += w.DistanceM
+		}
+		if (getErr == nil) != visible || (detErr == nil) != visible || len(list) != wantN || len(runs) != wantN ||
+			dist != wantDist || (maxHR != nil) != wantHR {
+			t.Fatalf("visible=%v: get %v detail %v list %d runs %d dist %v maxHR %v", visible, getErr, detErr, len(list), len(runs), dist, maxHR)
+		}
+		if !visible && (!errors.Is(getErr, ErrNotFound) || !errors.Is(detErr, ErrNotFound)) {
+			t.Fatalf("hidden get/detail = %v / %v, want ErrNotFound", getErr, detErr)
+		}
+	}
+	check(false)
+	if dup, err := db.ActivitiesForDuplicates(ctx, from, to); err != nil || len(dup) != 2 {
+		t.Fatalf("ActivitiesForDuplicates = %d, %v, want 2 (hidden included)", len(dup), err)
+	}
+	if need, err := db.ActivitiesNeedingFIT(ctx, 10); err != nil || len(need) != 2 {
+		t.Fatalf("ActivitiesNeedingFIT = %d, %v, want 2 (hidden copy's FIT is still downloaded)", len(need), err)
+	}
+	// Re-listing the hidden row must not show it again.
+	if err := db.UpsertActivity(ctx, a, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if err := db.SetFIT(ctx, 1, "fit/2026/1.fit", FITStored); err != nil {
+		t.Fatalf("SetFIT on hidden = %v", err)
+	}
+	if err := db.SetHiddenBy(ctx, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+}
+
+func TestActivityIDsInRangeBySource(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	g := mkAct(10, "2026-10-20", SportRunning, 1)
+	i := mkAct(-10, "2026-10-20", SportRunning, 1)
+	i.Source, i.SourceID = SourceIntervals, "i10"
+	for _, a := range []Activity{g, i} {
+		if err := db.UpsertActivity(ctx, a, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := d("2026-10-20")
+	if got, err := db.ActivityIDsInRange(ctx, SourceGarmin, day, day); err != nil || !slices.Equal(got, []int64{10}) {
+		t.Fatalf("garmin ids = %v, %v", got, err)
+	}
+	if got, err := db.ActivityIDsInRange(ctx, SourceIntervals, day, day); err != nil || !slices.Equal(got, []int64{-10}) {
+		t.Fatalf("intervals ids = %v, %v", got, err)
+	}
+}
+
+func TestListActivitiesCursorNegativeID(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	for _, id := range []int64{-5, 7, -900} {
+		if err := db.UpsertActivity(ctx, mkAct(id, "2026-10-20", SportRunning, 1), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []int64
+	cursor := ""
+	for range 5 {
+		page, next, err := db.ListActivities(ctx, ActivityQuery{Limit: 1, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range page {
+			got = append(got, a.ID)
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	if !slices.Equal(got, []int64{7, -5, -900}) {
+		t.Fatalf("paged ids = %v, want [7 -5 -900]", got)
 	}
 }

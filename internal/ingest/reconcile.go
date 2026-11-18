@@ -80,7 +80,7 @@ func (s *Service) reconcileActivities(ctx context.Context, from, to civil.Date, 
 	if floor := to.AddDays(-(summaryDays - 1)); from.Before(floor) {
 		from = floor
 	}
-	stored, err := s.db.ActivityIDsInRange(ctx, from, to)
+	stored, err := s.db.ActivityIDsInRange(ctx, store.SourceGarmin, from, to)
 	if err != nil {
 		return 0, err
 	}
