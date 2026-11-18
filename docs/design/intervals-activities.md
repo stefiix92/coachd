@@ -154,6 +154,9 @@ The name is untrusted free text and is labelled exactly as a Garmin activity nam
   checks that nothing assumes `id > 0` (cursor encoding, FIT file names, URL and tool input
   validation, the device API) and fixes what does.
 - The raw list entry is kept as `raw_json`, as for Garmin.
+- `activities` gains `has_power INTEGER NOT NULL DEFAULT 0`, set from the source's list entry
+  (average power above zero) on every upsert, and filled for existing Garmin rows from their raw
+  JSON by the migration. The duplicate rule reads it.
 - `activities` also gains `hidden_by INTEGER`, the ID of the richer copy, null for most rows. "Live"
   becomes: not soft-deleted and not hidden. It is separate from `deleted_at` because Garmin's upsert
   clears a soft delete on every sync.
