@@ -56,7 +56,7 @@ gain power, for every source. **[call]**
 Read 2026-11-18. The intervals.icu API Terms (effective 2025-10-23) license the API "for any lawful
 purpose, including commercial use", with no clause on AI use or on storing data. Rate limit for API
 keys: 2500 requests per rolling 15 minutes and 5000 per day; a 429 carries `Retry-After`. coachd
-makes one list call per sync and one file call per new activity.
+makes one list call per sync (one per 90 days on the first) and one file call per new activity.
 
 ## 4. Configuration
 
@@ -172,11 +172,16 @@ fresh Garmin data), present only when the key is configured. It has its own `syn
 span like every other type.
 
 - **Window**: as for Garmin activities (`today − 14`, or two days before the last success if that is
-  earlier). With no success yet, the window starts at `today − COACHD_BACKFILL_DAYS`, in one list
-  call: that is the backfill. **[call]** FIT files then arrive through the worker at its usual pace.
-  The list call asks for the day after the window's last day as `newest`, since it is unconfirmed
-  whether intervals.icu reads `newest` as the start of that day; an activity listed twice is stored
-  once, and the deletion probe and the duplicate step keep to the window itself.
+  earlier). With no success yet, the window starts at `today − COACHD_BACKFILL_DAYS`: that is the
+  backfill. **[call]** FIT files then arrive through the worker at its usual pace.
+- **List calls**: the window is listed in calls of at most 90 days, oldest first,
+  `COACHD_BACKFILL_DELAY` apart, so a first window of two years stays inside the client's body cap
+  and timeout; a normal window is one call. The first failed call ends the listing: what earlier
+  calls stored stays stored, and the listing counts as complete (for the deletion probe and the
+  type's success) only when every call succeeded. Each call asks for the day after its last day as
+  `newest`, since it is unconfirmed whether intervals.icu reads `newest` as the start of that day;
+  an activity listed twice is stored once, and the deletion probe and the duplicate step keep to
+  the window itself.
 - **Independence**: a Garmin 429 still skips the remaining Garmin types, as today, but not this
   one, and an intervals.icu 429 pauses only
   intervals.icu calls, until `Retry-After` (capped as Garmin's pause is). An unauthorized answer is

@@ -34,7 +34,7 @@ It is off unless the key is set. Like the Garmin key, it never leaves the server
 
    If you already have a `compose.override.yaml` (for the [webhook token](/docs/install/notifications/#post-run-webhook)), merge the two. If `.env` sets `COMPOSE_FILE`, add `:compose.override.yaml` to it: compose reads the override by itself only without `COMPOSE_FILE`.
 
-coachd reads the key only at start. The first sync reaches back `COACHD_BACKFILL_DAYS` (730 days by default) in one call; the FIT files then arrive one by one, `COACHD_BACKFILL_DELAY` apart. Later syncs look at the last 14 days, or further back after a gap. Demo mode ignores the key, with a line in the log.
+coachd reads the key only at start. The first sync reaches back `COACHD_BACKFILL_DAYS` (730 days by default), 90 days per list call; the FIT files then arrive one by one. Both go `COACHD_BACKFILL_DELAY` apart. Later syncs look at the last 14 days, or further back after a gap. Demo mode ignores the key, with a line in the log.
 
 ## What comes through
 
@@ -58,4 +58,4 @@ So a MyWhoosh ride that the watch also recorded, with heart rate only, shows as 
 
 intervals.icu and Garmin sync independently: a failure of one never stops the other, and a rate limit from intervals.icu pauses only intervals.icu calls. `get_status` shows `auth_failed` for a rejected key and `rate_limited` while paused. The `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) leaves intervals.icu out; the dashboard's **Last success age by data type** panel shows it.
 
-To turn it off, remove the override and run `docker compose up -d --force-recreate coachd`. Activities already stored stay; `get_status` stops listing `intervals_activities`. Turned on again, the first sync reaches back `COACHD_BACKFILL_DAYS` again in one call, updating what is already stored rather than adding it twice.
+To turn it off, remove the override and run `docker compose up -d --force-recreate coachd`. Activities already stored stay; `get_status` stops listing `intervals_activities`. Turned on again, the first sync reaches back `COACHD_BACKFILL_DAYS` again, updating what is already stored rather than adding it twice.

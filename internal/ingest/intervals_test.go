@@ -30,6 +30,7 @@ type fakeIntervals struct {
 	mu        sync.Mutex
 	items     []intervals.Item
 	errs      map[string]error // per-method error
+	listErrs  map[int]error    // ListActivities error by call number, from 1
 	calls     map[string]int
 	ranges    []dateRange       // ListActivities ranges, in call order
 	deleted   map[string]bool   // ActivityExists reports these ids gone (404)
@@ -41,8 +42,8 @@ type fakeIntervals struct {
 }
 
 func newFakeIntervals() *fakeIntervals {
-	return &fakeIntervals{errs: map[string]error{}, calls: map[string]int{}, deleted: map[string]bool{}, existsErr: map[string]error{},
-		files: map[string][]byte{}, fileErr: map[string]error{}, fileCalls: map[string]int{}}
+	return &fakeIntervals{errs: map[string]error{}, listErrs: map[int]error{}, calls: map[string]int{}, deleted: map[string]bool{},
+		existsErr: map[string]error{}, files: map[string][]byte{}, fileErr: map[string]error{}, fileCalls: map[string]int{}}
 }
 
 func (f *fakeIntervals) fileCount(id string) int {
@@ -100,6 +101,9 @@ func (f *fakeIntervals) ListActivities(ctx context.Context, from, to civil.Date)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.listErrs[f.calls[miList]]; err != nil {
+		return nil, err
+	}
 	out := []intervals.Item{}
 	for _, it := range f.items {
 		if inRange(it.V.StartDateLocal, from, to) {
@@ -333,8 +337,8 @@ func TestSyncIntervalsStores(t *testing.T) {
 		st.FreshestDataAt == nil || !st.FreshestDataAt.Equal(wantFresh) {
 		t.Errorf("state = %+v, want ok at %v, freshest %v", st, testNow, wantFresh)
 	}
-	if n := fi.count(miList); n != 1 {
-		t.Errorf("list calls = %d, want 1", n)
+	if n := fi.count(miList); n != 2 {
+		t.Errorf("list calls = %d, want 2 (120 days in calls of 90)", n)
 	}
 	for _, r := range rec.lines(t, "skipped unmappable items") {
 		t.Errorf("excluded entry counted as unmappable: %v", r.attrs)
@@ -358,7 +362,10 @@ func TestSyncIntervalsFirstWindowIsBackfillDays(t *testing.T) {
 	e.clock.Set(testNow.Add(time.Hour))
 	mustSync(t, e)
 	tomorrow := testToday.AddDays(1) // newest is the day after the window
-	want := []dateRange{{testToday.AddDays(-120), tomorrow}, {testToday.AddDays(-activityMinDays), tomorrow}}
+	want := []dateRange{
+		{testToday.AddDays(-120), testToday.AddDays(-30)}, {testToday.AddDays(-30), tomorrow}, // 121 days in calls of 90
+		{testToday.AddDays(-activityMinDays), tomorrow},
+	}
 	if r := fi.rangesOf(); !equalRanges(r, want) {
 		t.Errorf("ranges = %v, want %v (BackfillDays first, then the 14-day window)", r, want)
 	}
@@ -375,6 +382,85 @@ func TestSyncIntervalsFirstWindowIsBackfillDays(t *testing.T) {
 	mustSync(t, e)
 	if r := fi.rangesOf(); !equalRanges(r, []dateRange{{testToday.AddDays(-22), tomorrow}}) {
 		t.Errorf("ranges after a 20-day gap = %v, want [{%v %v}]", r, testToday.AddDays(-22), tomorrow)
+	}
+}
+
+// A first window of COACHD_BACKFILL_DAYS is listed in calls of at most 90
+// days, oldest first, BackfillDelay apart. Each call's newest is the day after
+// its last, so it shares only that day with the next call's oldest. A normal
+// window is one call.
+func TestSyncIntervalsListsLongWindowInChunks(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setItems(intervalsItem(t, rideOn("i500", testToday.AddDays(-700))), intervalsItem(t, rideOn("i501", testToday.AddDays(-1))))
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	e.svc.opts.BackfillDays = 730
+	e.svc.opts.BackfillDelay = 10 * time.Millisecond
+	start := time.Now()
+	res := mustSync(t, e)
+	took := time.Since(start)
+	if res.Outcomes[TypeIntervals] != OutcomeOK || res.Items[TypeIntervals] != 2 {
+		t.Fatalf("intervals outcome = %q items = %d, want ok 2", res.Outcomes[TypeIntervals], res.Items[TypeIntervals])
+	}
+	r := fi.rangesOf()
+	if len(r) != 9 {
+		t.Fatalf("list calls = %d (%v), want 9", len(r), r)
+	}
+	if r[0].From != testToday.AddDays(-730) || r[8].To != testToday.AddDays(1) {
+		t.Errorf("calls cover %v..%v, want %v..%v", r[0].From, r[8].To, testToday.AddDays(-730), testToday.AddDays(1))
+	}
+	for i, c := range r {
+		if n := c.To.Sub(c.From); n < 1 || n > intervalsListDays { // To is the day after the call's last
+			t.Errorf("call %d %v covers %d days, want 1..%d", i, c, n, intervalsListDays)
+		}
+		if i > 0 && c.From != r[i-1].To {
+			t.Errorf("call %d starts %v, want %v (the previous call's newest)", i, c.From, r[i-1].To)
+		}
+	}
+	if min := 8 * e.svc.opts.BackfillDelay; took < min {
+		t.Errorf("sync took %v, want at least %v (BackfillDelay between calls)", took, min)
+	}
+	for _, id := range []int64{-500, -501} {
+		if _, err := e.db.GetActivity(context.Background(), id); err != nil {
+			t.Errorf("activity %d: %v, want stored", id, err)
+		}
+	}
+
+	e.clock.Set(testNow.Add(time.Hour))
+	mustSync(t, e)
+	if r := fi.rangesOf(); len(r) != 10 || r[9] != (dateRange{testToday.AddDays(-activityMinDays), testToday.AddDays(1)}) {
+		t.Errorf("ranges after a success = %v, want one more call for the 14-day window", r)
+	}
+}
+
+// A failed call ends the listing: the type fails, nothing is probed, and what
+// earlier calls stored stays stored.
+func TestSyncIntervalsFailedChunkEndsListing(t *testing.T) {
+	ctx := context.Background()
+	fi := newFakeIntervals()
+	fi.setItems(intervalsItem(t, rideOn("i600", testToday.AddDays(-700))), intervalsItem(t, rideOn("i601", testToday.AddDays(-1))))
+	fi.listErrs[5] = &intervals.StatusError{Endpoint: "activities"}
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	e.svc.opts.BackfillDays = 730
+	storeIntervals(t, e, testToday.AddDays(-3), "i602") // stored before, now unlisted and gone
+	fi.deleted["i602"] = true
+	res := mustSync(t, e)
+	if res.Outcomes[TypeIntervals] != OutcomeError {
+		t.Fatalf("intervals outcome = %q, want error", res.Outcomes[TypeIntervals])
+	}
+	if n := fi.count(miList); n != 5 {
+		t.Errorf("list calls = %d, want 5 (none after the failed one)", n)
+	}
+	if _, err := e.db.GetActivity(ctx, -600); err != nil {
+		t.Errorf("ride from an earlier call: %v, want stored", err)
+	}
+	if p := fi.probed(); len(p) != 0 {
+		t.Errorf("probes = %v, want none after an incomplete listing", p)
+	}
+	if _, err := e.db.GetActivity(ctx, -602); err != nil {
+		t.Errorf("unlisted ride: %v, want kept", err)
+	}
+	if st := syncState(t, e, TypeIntervals); st.LastOutcome != OutcomeError || st.LastSuccessAt != nil {
+		t.Errorf("intervals state = %+v, want error with no success", st)
 	}
 }
 
@@ -603,7 +689,7 @@ func TestIntervalsHaveNoBackfill(t *testing.T) {
 		t.Error("backfill pending after every Garmin type finished")
 	}
 	mustBackfill(t, e)
-	if n := fi.count(miList); n != 1 {
-		t.Errorf("intervals list calls = %d, want 1 (the sync only)", n)
+	if n := fi.count(miList); n != 2 {
+		t.Errorf("intervals list calls = %d, want 2 (the sync's 120 days only)", n)
 	}
 }

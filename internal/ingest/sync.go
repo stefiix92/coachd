@@ -541,8 +541,8 @@ type fetched struct {
 	// Activities only: complete is true when paging ended on an empty page or
 	// on a page adding no new ID (not on an error or the page guard); ids holds
 	// every activity ID Garmin listed. For TypeIntervals, complete is true once
-	// the list call succeeded, and ids holds the coachd ID of every entry of
-	// the form i<digits> it returned, imported or not.
+	// every list call of the window succeeded, and ids holds the coachd ID of
+	// every entry of the form i<digits> they returned, imported or not.
 	complete bool
 	ids      map[int64]bool
 }

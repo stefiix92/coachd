@@ -405,8 +405,8 @@ func TestSyncGarmin429DoesNotSkipIntervals(t *testing.T) {
 			t.Errorf("outcome[%s] = %q, want garmin_rate_limited", dt, res.Outcomes[dt])
 		}
 	}
-	if res.Outcomes[TypeIntervals] != OutcomeOK || res.Items[TypeIntervals] != 1 || fi.count(miList) != 1 {
-		t.Fatalf("intervals outcome = %q items = %d list calls = %d, want ok 1 1",
+	if res.Outcomes[TypeIntervals] != OutcomeOK || res.Items[TypeIntervals] != 1 || fi.count(miList) != 2 {
+		t.Fatalf("intervals outcome = %q items = %d list calls = %d, want ok 1 2 (120 days in calls of 90)",
 			res.Outcomes[TypeIntervals], res.Items[TypeIntervals], fi.count(miList))
 	}
 	if _, err := e.db.GetActivity(context.Background(), -55751783); err != nil {
@@ -420,8 +420,8 @@ func TestSyncGarmin429DoesNotSkipIntervals(t *testing.T) {
 	if n := g.totalCalls(); n != 0 {
 		t.Errorf("Garmin calls while paused = %d, want 0", n)
 	}
-	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 2 {
-		t.Errorf("intervals outcome = %q list calls = %d, want ok 2", res.Outcomes[TypeIntervals], fi.count(miList))
+	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 3 {
+		t.Errorf("intervals outcome = %q list calls = %d, want ok 3", res.Outcomes[TypeIntervals], fi.count(miList))
 	}
 }
 
@@ -466,8 +466,8 @@ func TestSyncIntervals429DoesNotTouchGarmin(t *testing.T) {
 
 	e.clock.Set(retryAt)
 	res = mustSync(t, e)
-	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 2 {
-		t.Errorf("after pause: intervals outcome = %q list calls = %d, want ok 2", res.Outcomes[TypeIntervals], fi.count(miList))
+	if res.Outcomes[TypeIntervals] != OutcomeOK || fi.count(miList) != 3 {
+		t.Errorf("after pause: intervals outcome = %q list calls = %d, want ok 3 (the first window: 120 days in calls of 90)", res.Outcomes[TypeIntervals], fi.count(miList))
 	}
 }
 

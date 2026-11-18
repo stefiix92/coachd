@@ -21,6 +21,11 @@ const intervalsLocalLayout = "2006-01-02T15:04:05"
 // maxIntervalsProbes bounds the deletion probes of one intervals.icu sync.
 const maxIntervalsProbes = 10
 
+// intervalsListDays is the most days one intervals.icu list call covers, so
+// a first window of BackfillDays stays well inside the client's body cap and
+// timeout.
+const intervalsListDays = 90
+
 var (
 	// errNotImported marks a list entry that the import rules exclude: an ID
 	// not of the form i<digits> (a Strava stub), a STRAVA or GARMIN_CONNECT
@@ -116,22 +121,45 @@ func MapIntervalsActivity(a intervals.Activity, tz *time.Location) (store.Activi
 	}, nil
 }
 
-// fetchIntervals lists intervals.icu activities for [from, to] in one call
-// and stores every entry the import rules admit. Excluded entries count as
-// neither stored nor skipped. ids holds every listed i<digits> ID, imported
-// or not, for the deletion probe. The call asks for to + 1 day as newest:
-// whether intervals.icu reads newest as the start of that day is unconfirmed,
-// and an extra day costs nothing but a duplicate that is stored once.
+// fetchIntervals lists intervals.icu activities for [from, to] in calls of at
+// most intervalsListDays, oldest first and BackfillDelay apart, and stores
+// every entry the import rules admit. Excluded entries count as neither
+// stored nor skipped. ids holds every listed i<digits> ID, imported or not,
+// for the deletion probe. The first failed call ends the listing and returns
+// its error; what earlier calls stored stays stored, and the listing is
+// complete only when every call succeeded.
 func (s *Service) fetchIntervals(ctx context.Context, from, to civil.Date) (fetched, error) {
 	f := fetched{ids: map[int64]bool{}}
+	for start := from; !to.Before(start); start = start.AddDays(intervalsListDays) {
+		if start != from {
+			if err := sleepCtx(ctx, s.opts.BackfillDelay); err != nil {
+				return f, err
+			}
+		}
+		end := start.AddDays(intervalsListDays - 1)
+		if to.Before(end) {
+			end = to
+		}
+		if err := s.listIntervals(ctx, &f, start, end); err != nil {
+			return f, err
+		}
+	}
+	f.complete = true
+	return f, nil
+}
+
+// listIntervals makes one list call for [from, to] and stores its entries
+// into f; an ID already in f.ids is stored once. The call asks for to + 1 day
+// as newest: whether intervals.icu reads newest as the start of that day is
+// unconfirmed, and the extra day costs only an entry listed twice.
+func (s *Service) listIntervals(ctx context.Context, f *fetched, from, to civil.Date) error {
 	if err := s.checkIntervalsPause(); err != nil {
-		return f, err
+		return err
 	}
 	items, err := s.opts.Intervals.ListActivities(ctx, from, to.AddDays(1))
 	if err != nil {
-		return f, s.intervalsErr(ctx, err)
+		return s.intervalsErr(ctx, err)
 	}
-	f.complete = true
 	for _, it := range items {
 		if id, ok := IntervalsID(it.V.ID); ok {
 			if f.ids[id] {
@@ -148,13 +176,13 @@ func (s *Service) fetchIntervals(ctx context.Context, from, to civil.Date) (fetc
 			continue
 		}
 		if err := s.db.UpsertActivity(ctx, a, it.Raw); err != nil {
-			return f, err
+			return err
 		}
 		f.stored++
 		f.seen(a.StartUTC)
 		f.storedOn(a.Date)
 	}
-	return f, nil
+	return nil
 }
 
 // intervalsErr returns ctx's error if ctx has ended (the client reports a
