@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/fitdata"
 	"github.com/stefiix92/coachd/internal/garmin"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/store"
 )
 
@@ -52,11 +54,12 @@ func (s *Service) fitWorker(ctx context.Context) {
 	}
 }
 
-// drainFIT downloads FIT files for activities that need one, attempting each
-// activity at most once per drain, in one "ingest.fit.drain" span. It stops
-// when nothing new is left, when Garmin pauses (429), rejects the key or is
-// unreachable, after maxFITFailureStreak consecutive failures, or when ctx ends.
-// Then, however downloads ended, it fills missing detail from local files.
+// drainFIT downloads FIT files for activities that need one, each from its
+// own source and at most once per drain, in one "ingest.fit.drain" span. It
+// stops when nothing new is left, when every source is stopped (paused by a
+// 429, key rejected, unreachable, maxFITFailureStreak consecutive failures)
+// or when ctx ends. Then, however downloads ended, it fills missing detail
+// from local files. The span's outcome says why the first source stopped.
 func (s *Service) drainFIT(ctx context.Context) {
 	ctx, span := s.tracer.Start(ctx, "ingest.fit.drain")
 	defer span.End()
@@ -68,7 +71,7 @@ func (s *Service) drainFIT(ctx context.Context) {
 	}
 	span.SetAttributes(attribute.String("outcome", outcome), attribute.Int("count", tried))
 	// A pause (429) or the failure-streak stop is expected back-pressure, not a span error.
-	if err != nil && outcome != OutcomeRateLimited && outcome != "stopped" {
+	if err != nil && outcome != OutcomeRateLimited && outcome != OutcomeIntervalsRateLimited && outcome != "stopped" {
 		failSpan(span, err)
 	}
 }
@@ -145,17 +148,44 @@ func (s *Service) noteFillFailed(id int64) {
 	s.fillFailed[id] = true
 }
 
-// drainFITBatches does drainFIT's work. It returns how many downloads it
-// attempted and why it stopped early (nil when nothing was left).
+// fitSources are the sources the FIT worker downloads from, in one queue.
+var fitSources = []store.Source{store.SourceGarmin, store.SourceIntervals}
+
+// drainFITBatches does drainFIT's work. A source that is paused, rejects its
+// key, is unreachable or fails maxFITFailureStreak downloads in a row is
+// stopped for the rest of the drain: its activities are skipped, untouched,
+// while the other source keeps draining. intervals.icu activities are skipped
+// the same way while that source is off, without counting as a stop. It
+// returns how many downloads it attempted and why the first source stopped
+// (nil when none did), ending early once every source is stopped.
 func (s *Service) drainFITBatches(ctx context.Context) (int, error) {
 	tried := map[int64]bool{}
-	streak := 0
-	for {
-		if err := s.checkPause(); err != nil {
-			return len(tried), err
+	skipped := map[int64]bool{} // activities of a stopped source
+	stopped := map[store.Source]bool{}
+	streak := map[store.Source]int{}
+	var first error
+	halt := func(src store.Source, err error) {
+		stopped[src] = true
+		if first == nil && !errors.Is(err, errIntervalsOff) {
+			first = err
 		}
-		// Ask for enough rows to get past those already tried in this drain.
-		batch, err := s.db.ActivitiesNeedingFIT(ctx, fitBatch+len(tried))
+	}
+	// open reports whether src may still be called, halting it if it is
+	// paused or off.
+	open := func(src store.Source) bool {
+		if !stopped[src] {
+			if err := s.checkFITSource(src); err != nil {
+				halt(src, err)
+			}
+		}
+		return !stopped[src]
+	}
+	for {
+		if !slices.ContainsFunc(fitSources, open) {
+			return len(tried), first
+		}
+		// Ask for enough rows to get past those already tried or skipped in this drain.
+		batch, err := s.db.ActivitiesNeedingFIT(ctx, fitBatch+len(tried)+len(skipped))
 		if err != nil {
 			if ctx.Err() == nil {
 				s.log.ErrorContext(ctx, "fit query failed", "data_type", "fit", "error_class", errorClass(err), "error", err)
@@ -164,7 +194,12 @@ func (s *Service) drainFITBatches(ctx context.Context) (int, error) {
 		}
 		progressed := false
 		for _, a := range batch {
-			if tried[a.ID] {
+			if tried[a.ID] || skipped[a.ID] {
+				continue
+			}
+			progressed = true
+			if !open(a.Source) {
+				skipped[a.ID] = true
 				continue
 			}
 			if len(tried) > 0 {
@@ -173,62 +208,79 @@ func (s *Service) drainFITBatches(ctx context.Context) (int, error) {
 				}
 			}
 			tried[a.ID] = true
-			progressed = true
 			status, stop := s.fetchFIT(ctx, a)
 			if stop != nil {
-				return len(tried), stop
+				if ctx.Err() != nil {
+					return len(tried), stop
+				}
+				halt(a.Source, stop)
+				continue
 			}
 			switch status {
 			case store.FITStored:
-				streak = 0
+				streak[a.Source] = 0
 			case store.FITFailed:
-				if streak++; streak >= maxFITFailureStreak {
-					s.log.WarnContext(ctx, "fit drain stopped after consecutive failures", "data_type", "fit", "count", streak)
-					return len(tried), errFITFailureStreak
+				if streak[a.Source]++; streak[a.Source] >= maxFITFailureStreak {
+					s.log.WarnContext(ctx, "fit drain stopped after consecutive failures", "data_type", "fit", "count", streak[a.Source])
+					halt(a.Source, errFITFailureStreak)
 				}
 			}
 		}
 		if !progressed {
-			return len(tried), nil
+			return len(tried), first
 		}
 	}
 }
 
-// errFITFailureStreak ends a drain after maxFITFailureStreak failed downloads.
-var errFITFailureStreak = errors.New("ingest: fit: consecutive download failures")
+var (
+	// errFITFailureStreak stops a source after maxFITFailureStreak failed downloads.
+	errFITFailureStreak = errors.New("ingest: fit: consecutive download failures")
+	// errIntervalsOff marks an intervals.icu activity, left from an earlier
+	// configuration, while the intervals.icu source is off.
+	errIntervalsOff = errors.New("ingest: fit: intervals.icu source is off")
+)
 
-// fetchFIT downloads and stores one activity's FIT file and records its
-// status, which it returns. A non-nil stop means draining should stop; status
-// is then empty if the activity's state was left untouched. If the activity
-// row vanished during the download, the file just written is removed and the
-// status is empty (not a failure) unless the download itself failed.
+// checkFITSource returns why src may not be called now: its pause, or
+// errIntervalsOff for intervals.icu when it is not configured.
+func (s *Service) checkFITSource(src store.Source) error {
+	if src != store.SourceIntervals {
+		return s.checkPause()
+	}
+	if s.opts.Intervals == nil {
+		return errIntervalsOff
+	}
+	return s.checkIntervalsPause()
+}
+
+// fetchFIT downloads one activity's FIT file from its source, stores it and
+// records its status, which it returns. A non-nil stop means draining that
+// source (or, once ctx ends, everything) should stop; status is then empty if
+// the activity's state was left untouched. If the activity row vanished
+// during the download, the file just written is removed and the status is
+// empty (not a failure) unless the download itself failed.
 func (s *Service) fetchFIT(ctx context.Context, a store.Activity) (status store.FITStatus, stop error) {
-	if err := s.checkPause(); err != nil {
+	if err := s.checkFITSource(a.Source); err != nil {
 		return "", err
 	}
-	body, err := s.g.DownloadActivityFIT(ctx, a.ID)
+	var body []byte
+	var err error
+	if a.Source == store.SourceIntervals {
+		body, status, err = s.downloadIntervalsFIT(ctx, a.SourceID)
+	} else {
+		body, status, err = s.downloadGarminFIT(ctx, a.ID)
+	}
+	if status == "" {
+		// 429, rejected key, transport failure or cancellation: not the
+		// activity's fault, so leave its state untouched and stop draining
+		// its source.
+		s.logFIT(ctx, a.ID, outcomeOf(err), err)
+		return "", err
+	}
 	rel := ""
-	var se *garmin.StatusError
-	switch {
-	case err == nil && len(body) > 0:
+	if status == store.FITStored {
 		if rel, err = s.writeFIT(a, body); err != nil {
 			status = store.FITFailed
-		} else {
-			status = store.FITStored
 		}
-	case err == nil:
-		status, err = store.FITFailed, errors.New("ingest: fit: empty body")
-	case errors.Is(err, garmin.ErrNotFound):
-		status = store.FITUnavailable // e.g. manual or deleted: never retried
-	default:
-		transport := errors.As(err, &se) && se.Status == 0
-		if s.notePause(ctx, err) || errors.Is(err, garmin.ErrUnauthorized) || transport || ctx.Err() != nil {
-			// 429, revoked key, transport failure or cancellation: not the
-			// activity's fault, so leave its state untouched and stop draining.
-			s.logFIT(ctx, a.ID, outcomeOf(err), err)
-			return "", err
-		}
-		status = store.FITFailed // 5xx and other errors
 	}
 	serr := s.db.SetFIT(ctx, a.ID, rel, status)
 	if errors.Is(serr, store.ErrNotFound) {
@@ -255,6 +307,57 @@ func (s *Service) fetchFIT(ctx context.Context, a store.Activity) (status store.
 	return status, nil
 }
 
+// downloadGarminFIT downloads a Garmin activity's FIT file. A 404 is
+// unavailable (e.g. manual or deleted: never retried); an empty body, a 5xx
+// and other errors are failed. An empty status means draining Garmin should
+// stop: a 429 (which pauses Garmin calls), a rejected key, a transport
+// failure or ctx ending, as err says.
+func (s *Service) downloadGarminFIT(ctx context.Context, id int64) ([]byte, store.FITStatus, error) {
+	body, err := s.g.DownloadActivityFIT(ctx, id)
+	var se *garmin.StatusError
+	switch {
+	case err == nil && len(body) > 0:
+		return body, store.FITStored, nil
+	case err == nil:
+		return nil, store.FITFailed, errors.New("ingest: fit: empty body")
+	case errors.Is(err, garmin.ErrNotFound):
+		return nil, store.FITUnavailable, err
+	}
+	transport := errors.As(err, &se) && se.Status == 0
+	if s.notePause(ctx, err) || errors.Is(err, garmin.ErrUnauthorized) || transport || ctx.Err() != nil {
+		return nil, "", err
+	}
+	return nil, store.FITFailed, err
+}
+
+// downloadIntervalsFIT downloads an intervals.icu activity's original file.
+// A 404, or a body that fails the FIT integrity check (an HTML page, a GPX,
+// an empty or damaged file), is unavailable: the original is no usable FIT
+// and never will be. A 5xx, a damaged gzip or an oversized file is failed.
+// An empty status means draining intervals.icu should stop: a 429 (which
+// pauses intervals.icu calls), a rejected key, a transport failure or ctx
+// ending, as err says.
+func (s *Service) downloadIntervalsFIT(ctx context.Context, sourceID string) ([]byte, store.FITStatus, error) {
+	body, err := s.opts.Intervals.DownloadFile(ctx, sourceID)
+	switch {
+	case err == nil:
+		if err := fitdata.CheckIntegrity(body); err != nil {
+			return nil, store.FITUnavailable, err
+		}
+		return body, store.FITStored, nil
+	case errors.Is(err, intervals.ErrNotFound):
+		return nil, store.FITUnavailable, err
+	}
+	err = s.intervalsErr(ctx, err)
+	var rl *intervals.RateLimitedError
+	var se *intervals.StatusError
+	transport := errors.As(err, &se) && se.Status == 0
+	if errors.As(err, &rl) || errors.Is(err, intervals.ErrUnauthorized) || transport || ctx.Err() != nil {
+		return nil, "", err
+	}
+	return nil, store.FITFailed, err
+}
+
 // removeOrphanFIT removes a FIT file writeFIT just wrote (rel, relative to
 // DataDir; empty when none) for an activity whose row no longer exists.
 func (s *Service) removeOrphanFIT(ctx context.Context, id int64, rel string) {
@@ -275,10 +378,14 @@ func (s *Service) logFIT(ctx context.Context, id int64, outcome string, err erro
 	s.log.InfoContext(ctx, "fit download finished", attrs...)
 }
 
-// writeFIT atomically writes body to DataDir/fit/<yyyy>/<id>.fit (dir 0700,
-// file 0600) and returns the path relative to DataDir.
+// writeFIT atomically writes body to DataDir/fit/<yyyy>/<name> (dir 0700,
+// file 0600), named by fitFileName, and returns the path relative to DataDir.
 func (s *Service) writeFIT(a store.Activity, body []byte) (string, error) {
-	rel := path.Join("fit", fmt.Sprintf("%04d", a.Date.Year), strconv.FormatInt(a.ID, 10)+".fit")
+	name, err := fitFileName(a)
+	if err != nil {
+		return "", err
+	}
+	rel := path.Join("fit", fmt.Sprintf("%04d", a.Date.Year), name)
 	final := filepath.Join(s.opts.DataDir, filepath.FromSlash(rel))
 	dir := filepath.Dir(final)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -316,6 +423,19 @@ func (s *Service) writeFIT(a store.Activity, body []byte) (string, error) {
 		d.Close()
 	}
 	return rel, nil
+}
+
+// fitFileName names a's FIT file: <id>.fit for Garmin, <source_id>.fit for
+// intervals.icu (i55751783.fit, so no name starts with a dash). The source ID
+// becomes part of a path, so it must be the i<digits> form of a's ID.
+func fitFileName(a store.Activity) (string, error) {
+	if a.Source != store.SourceIntervals {
+		return strconv.FormatInt(a.ID, 10) + ".fit", nil
+	}
+	if id, ok := IntervalsID(a.SourceID); !ok || id != a.ID {
+		return "", errors.New("ingest: fit: invalid intervals.icu activity id")
+	}
+	return a.SourceID + ".fit", nil
 }
 
 // sleepCtx waits d (no wait when d <= 0) or until ctx ends.

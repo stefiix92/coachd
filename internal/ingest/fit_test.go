@@ -16,8 +16,10 @@ import (
 
 	"github.com/muktihari/fit/profile/typedef"
 
+	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/fitdata/fittest"
 	"github.com/stefiix92/coachd/internal/garmin"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/store"
 )
 
@@ -693,5 +695,352 @@ func TestDrainFailedFITTellsNothing(t *testing.T) {
 	e.svc.drainFIT(context.Background())
 	if slices.Contains(ev.ids, idRun) {
 		t.Fatalf("events %v: a failed download must not be told", ev.ids)
+	}
+}
+
+// Fixture intervals.icu ride, 16 h before testNow (recent enough for Events).
+const idRide = "i55751783"
+
+var rideDate = civil.Date{Year: 2026, Month: 10, Day: 22}
+
+// fitDay is the i-th day back from 2026-10-22, for one activity per day.
+func fitDay(i int) civil.Date { return rideDate.AddDays(-i) }
+
+// pendingGarmin stores Garmin run id on date with its FIT pending, as a sync would.
+func pendingGarmin(t *testing.T, e *env, id int64, date civil.Date) {
+	t.Helper()
+	it := item(t, activityDTO(id, "running", date.String()+" 07:00:00", date.String()+" 05:00:00", 5000, false))
+	a, err := MapActivity(it.V, e.svc.opts.TZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.UpsertActivity(context.Background(), a, it.Raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pendingIntervals stores intervals.icu ride sourceID on date with its FIT
+// pending, as a sync would, and returns its coachd ID.
+func pendingIntervals(t *testing.T, e *env, sourceID string, date civil.Date) int64 {
+	t.Helper()
+	it := intervalsItem(t, rideOn(sourceID, date))
+	a, err := MapIntervalsActivity(it.V, e.svc.opts.TZ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.UpsertActivity(context.Background(), a, it.Raw); err != nil {
+		t.Fatal(err)
+	}
+	return a.ID
+}
+
+// wantFIT fails unless activity id has FIT status, path and attempts as given.
+func wantFIT(t *testing.T, e *env, id int64, status store.FITStatus, rel string, attempts int) {
+	t.Helper()
+	a, err := e.db.GetActivity(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.FITStatus != status || a.FITPath != rel || a.FITAttempts != attempts {
+		t.Errorf("activity %d: fit %q path %q attempts %d, want %q %q %d", id, a.FITStatus, a.FITPath, a.FITAttempts, status, rel, attempts)
+	}
+}
+
+// An intervals.icu file is named by its source ID, which must be the
+// i<digits> form of the activity's ID before it becomes part of a path.
+func TestFITFileName(t *testing.T) {
+	for _, c := range []struct {
+		a    store.Activity
+		want string
+	}{
+		{store.Activity{ID: 1001, Source: store.SourceGarmin}, "1001.fit"},
+		{store.Activity{ID: -55751783, Source: store.SourceIntervals, SourceID: "i55751783"}, "i55751783.fit"},
+	} {
+		if got, err := fitFileName(c.a); err != nil || got != c.want {
+			t.Errorf("fitFileName(%d, %q) = %q, %v; want %q", c.a.ID, c.a.SourceID, got, err, c.want)
+		}
+	}
+	for _, sid := range []string{"", "../i55751783", "i55751783/..", "i5575178", "55751783", "i055751783"} {
+		a := store.Activity{ID: -55751783, Source: store.SourceIntervals, SourceID: sid}
+		if got, err := fitFileName(a); err == nil {
+			t.Errorf("fitFileName(source id %q) = %q, want an error", sid, got)
+		}
+	}
+}
+
+func TestFetchFITIntervalsStored(t *testing.T) {
+	body := buildFIT(t, 600)
+	fi := newFakeIntervals()
+	fi.setItems(intervalsItem(t, rideOn(idRide, rideDate)))
+	fi.files[idRide] = body
+	g := newFake()
+	e := newIntervalsEnv(t, g, fi, nil)
+	ev := &recordEvents{db: e.db}
+	e.svc.opts.Events = ev
+	ctx := context.Background()
+	mustSync(t, e)
+	e.svc.drainFIT(ctx)
+
+	const id int64 = -55751783
+	wantFIT(t, e, id, store.FITStored, "fit/2026/i55751783.fit", 0)
+	abs := filepath.Join(e.dir, "fit", "2026", "i55751783.fit")
+	got, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatal("stored FIT bytes differ from the intervals.icu download")
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file mode = %04o, want 0600", perm)
+	}
+	if n := fi.fileCount(idRide); n != 1 || g.count(mFIT) != 0 {
+		t.Errorf("downloads: intervals.icu %d, Garmin %d; want 1 and 0", n, g.count(mFIT))
+	}
+	if d, err := e.db.GetActivityDetail(ctx, id); err != nil || len(d.Laps) != 3 || len(d.Series) == 0 {
+		t.Fatalf("detail = %d laps, %d points, %v; want 3 laps and a series", len(d.Laps), len(d.Series), err)
+	}
+	if len(ev.ids) != 1 || ev.ids[0] != id || !ev.detail[0] {
+		t.Fatalf("events %v (detail stored: %v), want the ride, after its detail", ev.ids, ev.detail)
+	}
+}
+
+// A body that is not a whole FIT file is unavailable, not failed: the
+// original never will be one. Nothing is written and it is not asked again.
+func TestFetchFITIntervalsNotFIT(t *testing.T) {
+	whole := buildFIT(t, 60)
+	for name, body := range map[string][]byte{
+		"html":      []byte("<html>"),
+		"gpx":       []byte(`<?xml version="1.0"?><gpx version="1.1"><trk></trk></gpx>`),
+		"empty":     {},
+		"truncated": whole[:len(whole)-1],
+	} {
+		t.Run(name, func(t *testing.T) {
+			fi := newFakeIntervals()
+			fi.files[idRide] = body
+			e := newIntervalsEnv(t, newFake(), fi, nil)
+			id := pendingIntervals(t, e, idRide, rideDate)
+			ctx := context.Background()
+			e.svc.drainFIT(ctx)
+			e.svc.drainFIT(ctx)
+			wantFIT(t, e, id, store.FITUnavailable, "", 0)
+			if n := fi.fileCount(idRide); n != 1 {
+				t.Errorf("file requested %d times over two drains, want 1", n)
+			}
+			if _, err := os.Stat(filepath.Join(e.dir, "fit")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("fit/ exists (%v), want nothing written", err)
+			}
+		})
+	}
+}
+
+func TestFetchFITIntervalsNotFound(t *testing.T) {
+	fi := newFakeIntervals() // no file: 404
+	e := newIntervalsEnv(t, newFake(), fi, nil)
+	ev := &recordEvents{db: e.db}
+	e.svc.opts.Events = ev
+	id := pendingIntervals(t, e, idRide, rideDate)
+	ctx := context.Background()
+	e.svc.drainFIT(ctx)
+	e.svc.drainFIT(ctx)
+	wantFIT(t, e, id, store.FITUnavailable, "", 0)
+	if n := fi.fileCount(idRide); n != 1 {
+		t.Errorf("file requested %d times over two drains, want 1", n)
+	}
+	if !slices.Equal(ev.ids, []int64{id}) {
+		t.Errorf("events %v, want the ride once (unavailable, as for Garmin)", ev.ids)
+	}
+}
+
+// When one source stops (429, rejected key, unreachable, or failing
+// maxFITFailureStreak times in a row), the drain leaves its activities
+// untouched and keeps downloading the other source's, in both directions.
+func TestDrainContinuesWhenOneSourcePaused(t *testing.T) {
+	body := buildFIT(t, 60)
+	retry := testNow.Add(time.Hour)
+	cases := []struct {
+		name                    string
+		garminErr, intervalsErr error
+		garminOut, intervalsOut string // drain span outcome
+		calls                   int    // downloads from the stopping source
+		failed                  bool   // its downloads count as failed attempts
+	}{
+		{"rate limited", &garmin.RateLimitedError{RetryAt: retry}, &intervals.RateLimitedError{RetryAt: retry},
+			OutcomeRateLimited, OutcomeIntervalsRateLimited, 1, false},
+		{"unauthorized", garmin.ErrUnauthorized, intervals.ErrUnauthorized, OutcomeAuthFailed, OutcomeAuthFailed, 1, false},
+		{"unreachable", &garmin.StatusError{Endpoint: "activity_file"}, &intervals.StatusError{Endpoint: "file"},
+			OutcomeError, OutcomeError, 1, false},
+		{"failing", &garmin.StatusError{Endpoint: "activity_file", Status: 503}, &intervals.StatusError{Endpoint: "file", Status: 503},
+			"stopped", "stopped", maxFITFailureStreak, true},
+	}
+	// Newest first: one activity of the source that keeps going, 2*fitBatch of
+	// the source that stops (its skipped rows outnumber a batch plus those
+	// tried), then two more of the one that keeps going.
+	stopsAt := func(i int) bool { return i >= 1 && i <= 2*fitBatch }
+	const rows = 2*fitBatch + 3
+	for _, stopping := range []store.Source{store.SourceGarmin, store.SourceIntervals} {
+		for _, c := range cases {
+			t.Run(string(stopping)+"/"+c.name, func(t *testing.T) {
+				g, fi := newFake(), newFakeIntervals()
+				logs := newLogRecorder()
+				e := newIntervalsEnv(t, g, fi, logs)
+				sr := traced(t, e)
+				var stopped, going []int64
+				for i := range rows {
+					stops := stopsAt(i)
+					var id int64
+					if (stops && stopping == store.SourceGarmin) || (!stops && stopping == store.SourceIntervals) {
+						id = int64(5000 + i)
+						pendingGarmin(t, e, id, fitDay(i))
+						if stops {
+							g.fitErr[id] = c.garminErr
+						} else {
+							g.fit[id] = body
+						}
+					} else {
+						sid := "i" + strconv.Itoa(6000+i)
+						id = pendingIntervals(t, e, sid, fitDay(i))
+						if stops {
+							fi.fileErr[sid] = c.intervalsErr
+						} else {
+							fi.files[sid] = body
+						}
+					}
+					if stops {
+						stopped = append(stopped, id)
+					} else {
+						going = append(going, id)
+					}
+				}
+				e.svc.drainFIT(context.Background())
+
+				for _, id := range going {
+					a, err := e.db.GetActivity(context.Background(), id)
+					if err != nil || a.FITStatus != store.FITStored {
+						t.Errorf("activity %d of the source that keeps going: %q %v, want stored", id, a.FITStatus, err)
+					}
+				}
+				for i, id := range stopped {
+					if c.failed && i < c.calls {
+						wantFIT(t, e, id, store.FITFailed, "", 1)
+					} else {
+						wantFIT(t, e, id, store.FITPending, "", 0)
+					}
+				}
+				gCalls, iCalls := g.count(mFIT), fi.count(miFile)
+				wantG, wantI, wantOut := len(going), c.calls, c.intervalsOut
+				if stopping == store.SourceGarmin {
+					wantG, wantI, wantOut = c.calls, len(going), c.garminOut
+				}
+				if gCalls != wantG || iCalls != wantI {
+					t.Errorf("downloads: Garmin %d, intervals.icu %d; want %d and %d", gCalls, iCalls, wantG, wantI)
+				}
+				_, gPaused := e.svc.pausedUntil()
+				_, iPaused := e.svc.intervalsPausedUntil()
+				rateLimited := c.name == "rate limited"
+				if gPaused != (rateLimited && stopping == store.SourceGarmin) || iPaused != (rateLimited && stopping == store.SourceIntervals) {
+					t.Errorf("paused: Garmin %v, intervals.icu %v; want only the stopping source's, on a 429", gPaused, iPaused)
+				}
+				drains := spansNamed(sr, "ingest.fit.drain")
+				if len(drains) != 1 {
+					t.Fatalf("%d drain spans, want 1", len(drains))
+				}
+				if out, _ := attr(drains[0], "outcome"); out != wantOut {
+					t.Errorf("drain outcome = %q, want %q", out, wantOut)
+				}
+				if n := len(logs.lines(t, "fit download finished")); n != gCalls+iCalls {
+					t.Errorf("%d download lines, want %d", n, gCalls+iCalls)
+				}
+			})
+		}
+	}
+}
+
+// Once every source is stopped the drain ends, and paused sources are not
+// called again by a later drain.
+func TestDrainStopsWhenEverySourceStopped(t *testing.T) {
+	g, fi := newFake(), newFakeIntervals()
+	e := newIntervalsEnv(t, g, fi, nil)
+	for i := range 6 {
+		if i%2 == 0 {
+			id := int64(5000 + i)
+			pendingGarmin(t, e, id, fitDay(i))
+			g.fitErr[id] = &garmin.RateLimitedError{RetryAt: testNow.Add(time.Hour)}
+		} else {
+			sid := "i" + strconv.Itoa(6000+i)
+			pendingIntervals(t, e, sid, fitDay(i))
+			fi.fileErr[sid] = &intervals.RateLimitedError{RetryAt: testNow.Add(time.Hour)}
+		}
+	}
+	e.svc.drainFIT(context.Background())
+	if gc, ic := g.count(mFIT), fi.count(miFile); gc != 1 || ic != 1 {
+		t.Fatalf("downloads: Garmin %d, intervals.icu %d; want 1 each", gc, ic)
+	}
+	e.svc.drainFIT(context.Background())
+	if gc, ic := g.count(mFIT), fi.count(miFile); gc != 1 || ic != 1 {
+		t.Fatalf("downloads while both paused: Garmin %d, intervals.icu %d; want no more", gc-1, ic-1)
+	}
+}
+
+// Each source has its own failure streak: the other source's successes in
+// between do not reset it.
+func TestDrainFailureStreakIsPerSource(t *testing.T) {
+	body := buildFIT(t, 60)
+	g, fi := newFake(), newFakeIntervals()
+	e := newIntervalsEnv(t, g, fi, nil)
+	for i := range 6 { // newest first: Garmin 503, intervals.icu ok, alternating
+		if i%2 == 0 {
+			id := int64(5000 + i)
+			pendingGarmin(t, e, id, fitDay(i))
+			g.fitErr[id] = &garmin.StatusError{Endpoint: "activity_file", Status: 503}
+		} else {
+			sid := "i" + strconv.Itoa(6000+i)
+			pendingIntervals(t, e, sid, fitDay(i))
+			fi.files[sid] = body
+		}
+	}
+	e.svc.drainFIT(context.Background())
+	if gc, ic := g.count(mFIT), fi.count(miFile); gc != maxFITFailureStreak || ic != 3 {
+		t.Fatalf("downloads: Garmin %d, intervals.icu %d; want %d and 3", gc, ic, maxFITFailureStreak)
+	}
+}
+
+// Pending intervals.icu activities left from an earlier configuration are
+// skipped, not failed, and do not keep the drain from Garmin's.
+func TestDrainSkipsIntervalsWhenOff(t *testing.T) {
+	body := buildFIT(t, 60)
+	g, fi := newFake(), newFakeIntervals()
+	e := newIntervalsEnv(t, g, fi, nil)
+	sr := traced(t, e)
+	var rides []int64
+	for i := range fitBatch + 2 { // newer than the Garmin run, past a whole batch
+		sid := "i" + strconv.Itoa(7000+i)
+		fi.files[sid] = body
+		rides = append(rides, pendingIntervals(t, e, sid, fitDay(i)))
+	}
+	pendingGarmin(t, e, idRun, fitDay(fitBatch+2))
+	g.fit[idRun] = body
+	e.svc.opts.Intervals = nil
+	e.svc.drainFIT(context.Background())
+
+	wantFIT(t, e, idRun, store.FITStored, "fit/2026/1001.fit", 0)
+	for _, id := range rides {
+		wantFIT(t, e, id, store.FITPending, "", 0)
+	}
+	if n := fi.count(miFile); n != 0 {
+		t.Errorf("intervals.icu downloads = %d while the source is off, want 0", n)
+	}
+	drains := spansNamed(sr, "ingest.fit.drain")
+	if len(drains) != 1 {
+		t.Fatalf("%d drain spans, want 1", len(drains))
+	}
+	out, _ := attr(drains[0], "outcome")
+	count, _ := attr(drains[0], "count")
+	if out != OutcomeOK || count != "1" {
+		t.Errorf("drain outcome %q count %q, want ok 1", out, count)
 	}
 }

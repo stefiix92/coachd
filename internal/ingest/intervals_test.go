@@ -31,14 +31,24 @@ type fakeIntervals struct {
 	items     []intervals.Item
 	errs      map[string]error // per-method error
 	calls     map[string]int
-	ranges    []dateRange      // ListActivities ranges, in call order
-	deleted   map[string]bool  // ActivityExists reports these ids gone (404)
-	existsErr map[string]error // ActivityExists fails for these ids
-	probes    []string         // ids passed to ActivityExists, in call order
+	ranges    []dateRange       // ListActivities ranges, in call order
+	deleted   map[string]bool   // ActivityExists reports these ids gone (404)
+	existsErr map[string]error  // ActivityExists fails for these ids
+	probes    []string          // ids passed to ActivityExists, in call order
+	files     map[string][]byte // DownloadFile body per id; any other id is a 404
+	fileErr   map[string]error  // DownloadFile error per id
+	fileCalls map[string]int
 }
 
 func newFakeIntervals() *fakeIntervals {
-	return &fakeIntervals{errs: map[string]error{}, calls: map[string]int{}, deleted: map[string]bool{}, existsErr: map[string]error{}}
+	return &fakeIntervals{errs: map[string]error{}, calls: map[string]int{}, deleted: map[string]bool{}, existsErr: map[string]error{},
+		files: map[string][]byte{}, fileErr: map[string]error{}, fileCalls: map[string]int{}}
+}
+
+func (f *fakeIntervals) fileCount(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.fileCalls[id]
 }
 
 func (f *fakeIntervals) enter(ctx context.Context, method string) error {
@@ -102,6 +112,15 @@ func (f *fakeIntervals) ListActivities(ctx context.Context, from, to civil.Date)
 func (f *fakeIntervals) DownloadFile(ctx context.Context, id string) ([]byte, error) {
 	if err := f.enter(ctx, miFile); err != nil {
 		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fileCalls[id]++
+	if err := f.fileErr[id]; err != nil {
+		return nil, err
+	}
+	if b, ok := f.files[id]; ok {
+		return b, nil
 	}
 	return nil, intervals.ErrNotFound
 }

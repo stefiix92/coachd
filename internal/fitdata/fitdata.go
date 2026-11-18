@@ -101,14 +101,14 @@ func DecodeWorkout(r io.Reader) ([]WorkoutStep, error) {
 	return c.steps, nil
 }
 
-// decode reads the first FIT file in r. checkIntegrity replaces the
+// decode reads the first FIT file in r. CheckIntegrity replaces the
 // decoder's checksum, which rejects some valid files.
 func (c *collector) decode(r io.Reader) error {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("fitdata: read: %w", err)
 	}
-	if err := checkIntegrity(b); err != nil {
+	if err := CheckIntegrity(b); err != nil {
 		return err
 	}
 	d := decoder.New(bytes.NewReader(b), decoder.WithMesgListener(c), decoder.WithBroadcastOnly(), decoder.WithIgnoreChecksum())

@@ -12,16 +12,17 @@ import (
 // content: a truncated or damaged file.
 var errIntegrity = errors.New("fitdata: integrity check failed")
 
-// checkIntegrity checks the first FIT file in b as the FIT SDK's
+// CheckIntegrity checks the first FIT file in b as the FIT SDK's
 // CheckIntegrity does: a 14-byte header's CRC covers bytes 0–11 unless it is
 // 0x0000 (the field is optional), and the file CRC covers the header and the
-// data records.
+// data records. Decode runs it before decoding; an error means b is no whole,
+// undamaged FIT file.
 //
 // The decoder's own check restarts the file CRC after a 14-byte header. That
 // equals the SDK's only when the header CRC is set (a CRC run over a block
 // and its own CRC ends at 0), so it rejects valid files with header CRC
 // 0x0000, which Zwift writes for some rides.
-func checkIntegrity(b []byte) error {
+func CheckIntegrity(b []byte) error {
 	if len(b) < 12 {
 		return fmt.Errorf("%w: %d bytes is shorter than a FIT header", errIntegrity, len(b))
 	}
