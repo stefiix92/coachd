@@ -231,6 +231,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		if c.IntervalsAPIKey, err = ReadSecretFile(p); err != nil {
 			return nil, fmt.Errorf("COACHD_INTERVALS_API_KEY_FILE: %w", err)
 		}
+		if c.IntervalsAPIKey == "" { // set but empty would silently turn the source off
+			return nil, fmt.Errorf("COACHD_INTERVALS_API_KEY_FILE: file is empty")
+		}
 	}
 	return c, nil
 }

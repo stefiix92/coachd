@@ -476,4 +476,13 @@ func TestIntervalsKeyConfig(t *testing.T) {
 		!strings.Contains(err.Error(), "COACHD_INTERVALS_API_KEY_FILE") {
 		t.Errorf("missing file: err = %v", err)
 	}
+	// An empty file (whitespace only) is an error, not the feature silently off.
+	empty := filepath.Join(t.TempDir(), "empty_key")
+	if err := os.WriteFile(empty, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY_FILE": empty})); err == nil ||
+		err.Error() != "COACHD_INTERVALS_API_KEY_FILE: file is empty" {
+		t.Errorf("empty file: err = %v, want COACHD_INTERVALS_API_KEY_FILE: file is empty", err)
+	}
 }

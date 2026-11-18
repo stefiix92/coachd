@@ -32,6 +32,7 @@ coachd checks its settings at start and exits with a message naming the setting.
 | `COACHD_PUBLIC_AUTH=builtin: leave COACHD_ACCESS_* empty` | Empty the three `COACHD_ACCESS_*` settings. |
 | `COACHD_PUBLIC_URL: builtin mode needs https://, or http://localhost for development` | Use your `https://` hostname; an IP address doesn't work with passkeys. |
 | `COACHD_NTFY_URL requires the public lane` | Set `COACHD_PUBLIC_URL` and a public lane mode, or leave ntfy off. |
+| `COACHD_INTERVALS_API_KEY_FILE: file is empty` | Write the key into it with [`put_secret`](/docs/install/secrets/#the-helper), or remove the [intervals.icu](/docs/install/intervals/) override to leave it off. |
 
 `docker compose ps` shows coachd unhealthy when its `/livez` probe fails: read the log.
 
