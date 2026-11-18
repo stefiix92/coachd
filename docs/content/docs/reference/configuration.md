@@ -55,4 +55,4 @@ Settings live in `deploy/.env` (from [`.env.example`](https://github.com/stefiix
 
 ## Set by compose
 
-`compose.yaml` also sets settings you don't change: the secret file paths (`COACHD_GARMIN_API_KEY_FILE`, `COACHD_NTFY_TOKEN_FILE`, and `COACHD_WEBHOOK_TOKEN_FILE` from a [compose override](/docs/install/notifications/#post-run-webhook)), the data directory (`COACHD_DATA_DIR`, `/data`), the listeners (`COACHD_PUBLIC_ADDR` `:8080`, `COACHD_PRIVATE_ADDR` `:8081`, `COACHD_OPS_ADDR` `:9090` for `/livez`, `/readyz` and pprof) and the telemetry endpoint (Alloy).
+`compose.yaml` also sets settings you don't change: the secret file paths (`COACHD_GARMIN_API_KEY_FILE`, `COACHD_NTFY_TOKEN_FILE`, and from a compose override `COACHD_WEBHOOK_TOKEN_FILE` for the [webhook](/docs/install/notifications/#post-run-webhook) and `COACHD_INTERVALS_API_KEY_FILE` for [intervals.icu](/docs/install/intervals/), which is off without it), the data directory (`COACHD_DATA_DIR`, `/data`), the listeners (`COACHD_PUBLIC_ADDR` `:8080`, `COACHD_PRIVATE_ADDR` `:8081`, `COACHD_OPS_ADDR` `:9090` for `/livez`, `/readyz` and pprof) and the telemetry endpoint (Alloy).

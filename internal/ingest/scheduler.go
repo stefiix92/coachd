@@ -102,7 +102,8 @@ func (s *Service) RequestSync(ctx context.Context) RequestResult {
 }
 
 // requestOutcome folds per-type outcomes with precedence
-// garmin_rate_limited > auth_failed > failed > synced.
+// garmin_rate_limited > auth_failed > failed > synced. An intervals.icu 429
+// is failed: it is not Garmin's, and the request did not sync everything.
 func requestOutcome(res SyncResult) string {
 	has := func(o string) bool {
 		for _, v := range res.Outcomes {
@@ -117,7 +118,7 @@ func requestOutcome(res SyncResult) string {
 		return RequestGarminRateLimited
 	case has(OutcomeAuthFailed):
 		return RequestAuthFailed
-	case has(OutcomeError):
+	case has(OutcomeError), has(OutcomeIntervalsRateLimited):
 		return RequestFailed
 	}
 	return RequestSynced

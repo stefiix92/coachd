@@ -610,6 +610,40 @@ func TestRequestSyncOutcomePrecedence(t *testing.T) {
 	}
 }
 
+// An intervals.icu failure is never reported as Garmin's, nor as everything
+// synced: its 429 and other errors are failed, its 401 auth_failed, and a
+// Garmin 429 still wins.
+func TestRequestSyncOutcomeWithIntervals(t *testing.T) {
+	irl := &intervals.RateLimitedError{RetryAt: testNow.Add(time.Minute)}
+	for _, tc := range []struct {
+		name   string
+		garmin map[string]error
+		iv     error
+		want   string
+	}{
+		{"all ok", nil, nil, "synced"},
+		{"intervals rate limited", nil, irl, "failed"},
+		{"intervals error", nil, &intervals.StatusError{Endpoint: "activities", Status: 500}, "failed"},
+		{"intervals unauthorized", nil, intervals.ErrUnauthorized, "auth_failed"},
+		{"intervals rate limited, garmin error", map[string]error{mHRV: errors.New("boom")}, irl, "failed"},
+		{"garmin rate limit beats intervals", map[string]error{mWeight: &garmin.RateLimitedError{RetryAt: testNow.Add(time.Minute)}}, irl, "garmin_rate_limited"},
+		{"garmin rate limited, intervals ok", map[string]error{mSleep: &garmin.RateLimitedError{RetryAt: testNow.Add(time.Minute)}}, nil, "garmin_rate_limited"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := seededFake(t)
+			for m, err := range tc.garmin {
+				f.setErr(m, err)
+			}
+			fi := newFakeIntervals()
+			fi.setErr(miList, tc.iv)
+			e := newIntervalsEnv(t, f, fi, nil)
+			if r := e.svc.RequestSync(context.Background()); r.Outcome != tc.want {
+				t.Fatalf("outcome = %q, want %q", r.Outcome, tc.want)
+			}
+		})
+	}
+}
+
 func TestSyncRecomputesSummaries(t *testing.T) {
 	e := newEnv(t, seededFake(t), nil)
 	mustSync(t, e)

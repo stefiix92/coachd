@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 	"github.com/stefiix92/coachd/internal/backup"
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/config"
+	"github.com/stefiix92/coachd/internal/demo"
 	"github.com/stefiix92/coachd/internal/garmin"
 	"github.com/stefiix92/coachd/internal/garminkey"
 	"github.com/stefiix92/coachd/internal/ingest"
@@ -124,11 +126,18 @@ func startServeWith(t *testing.T, cfg *config.Config, tel *telemetry.Telemetry) 
 // startServeGarmin is startServeWith with the caller's Garmin and key holder.
 func startServeGarmin(t *testing.T, cfg *config.Config, tel *telemetry.Telemetry, g ingest.Garmin, keys *garminkey.Holder) *running {
 	t.Helper()
+	return startServeSources(t, cfg, tel, g, nil, keys)
+}
+
+// startServeSources is startServeGarmin with the caller's intervals.icu
+// source too (nil: off).
+func startServeSources(t *testing.T, cfg *config.Config, tel *telemetry.Telemetry, g ingest.Garmin, iv ingest.Intervals, keys *garminkey.Holder) *running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan Addrs, 1)
 	r := &running{cancel: cancel, done: make(chan error, 1)}
 	go func() {
-		r.done <- runServe(ctx, cfg, g, keys, tel, func(a Addrs) { ready <- a })
+		r.done <- runServe(ctx, cfg, g, iv, keys, tel, func(a Addrs) { ready <- a })
 	}()
 	select {
 	case r.addrs = <-ready:
@@ -531,7 +540,9 @@ func TestDeviceAPIPairingIDNotLeaked(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan Addrs, 1)
 	done := make(chan error, 1)
-	go func() { done <- runServe(ctx, cfg, emptyGarmin{}, testKeys(t, cfg), tel, func(a Addrs) { ready <- a }) }()
+	go func() {
+		done <- runServe(ctx, cfg, emptyGarmin{}, nil, testKeys(t, cfg), tel, func(a Addrs) { ready <- a })
+	}()
 	var addrs Addrs
 	select {
 	case addrs = <-ready:
@@ -590,7 +601,7 @@ func TestServeRefusesLockedDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	err = runServe(context.Background(), cfg, emptyGarmin{}, testKeys(t, cfg), testTel(t), nil)
+	err = runServe(context.Background(), cfg, emptyGarmin{}, nil, testKeys(t, cfg), testTel(t), nil)
 	if err == nil || !strings.Contains(err.Error(), "in use by another coachd process") {
 		t.Fatalf("err %v", err)
 	}
@@ -1096,5 +1107,278 @@ func TestKeyRenewerFollowsRenewal(t *testing.T) {
 	}
 	if expires() != next || r.Expires() != next || keys.Value() != "new" || g.used != "new" {
 		t.Fatalf("after renewal: expires %v, key %q, client %q", expires(), keys.Value(), g.used)
+	}
+}
+
+// fakeIntervals is an intervals.icu server: it lists one MyWhoosh ride
+// that started yesterday at 18:00 and answers a file request with 404.
+// failList and failFile, when set, answer those requests instead. It counts
+// requests and those that lack the key or coachd's User-Agent.
+type fakeIntervals struct {
+	*httptest.Server
+	mu                 sync.Mutex
+	lists, files, rest int
+	unauthenticated    int
+}
+
+const intervalsKey = "iv-Secret-Key-0123456789"
+
+func newFakeIntervals(t *testing.T, tz *time.Location, failList, failFile func(http.ResponseWriter)) *fakeIntervals {
+	t.Helper()
+	y := time.Now().In(tz).AddDate(0, 0, -1)
+	start := time.Date(y.Year(), y.Month(), y.Day(), 18, 0, 0, 0, tz)
+	list := fmt.Sprintf(`[{"id":"i55751783","start_date":%q,"start_date_local":%q,"type":"VirtualRide",`+
+		`"name":"MyWhoosh ride","source":"OAUTH_CLIENT","file_type":"fit","distance":30000,"moving_time":3500,`+
+		`"elapsed_time":3600,"average_heartrate":140,"max_heartrate":170,"icu_average_watts":210}]`,
+		start.UTC().Format(time.RFC3339), start.Format("2006-01-02T15:04:05"))
+	f := &fakeIntervals{}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		f.mu.Lock()
+		if !ok || user != "API_KEY" || pass != intervalsKey || r.UserAgent() != "coachd/"+version {
+			f.unauthenticated++
+		}
+		var fail func(http.ResponseWriter)
+		switch {
+		case r.URL.Path == "/api/v1/athlete/0/activities":
+			f.lists++
+			fail = failList
+		case strings.HasSuffix(r.URL.Path, "/file"):
+			f.files++
+			fail = failFile
+		default:
+			f.rest++
+		}
+		f.mu.Unlock()
+		switch {
+		case fail != nil:
+			fail(w)
+		case r.URL.Path == "/api/v1/athlete/0/activities":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, list)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+func (f *fakeIntervals) counts() (lists, files, rest, unauthenticated int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lists, f.files, f.rest, f.unauthenticated
+}
+
+// The ways an intervals.icu call can fail.
+var (
+	answer401 = func(w http.ResponseWriter) { w.WriteHeader(http.StatusUnauthorized) }
+	answer429 = func(w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}
+	// hangUp closes the connection without an answer: a transport error.
+	hangUp = func(w http.ResponseWriter) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			conn.Close()
+		}
+	}
+)
+
+// privateSession connects an MCP client to the private lane with tok.
+func privateSession(t *testing.T, r *running, tok string) *mcp.ClientSession {
+	t.Helper()
+	c := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	cs, err := c.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint: "http://" + r.addrs.Private + "/mcp", DisableStandaloneSSE: true,
+		HTTPClient: &http.Client{Transport: headerTransport{"Authorization": "Bearer " + tok}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	return cs
+}
+
+// syncTypes is the data_type of every get_status sync row.
+func syncTypes(t *testing.T, cs *mcp.ClientSession) []string {
+	t.Helper()
+	var st struct {
+		Sync []struct {
+			DataType string `json:"data_type"`
+		} `json:"sync"`
+	}
+	callTool(t, cs, "get_status", map[string]any{}, &st)
+	var out []string
+	for _, s := range st.Sync {
+		out = append(out, s.DataType)
+	}
+	return out
+}
+
+// With the key set, serve syncs intervals.icu with the key and coachd's
+// User-Agent: the ride lists with a negative id and source intervals_icu, and
+// get_status shows the data type.
+func TestServeIntervalsActivity(t *testing.T) {
+	cfg := testCfg(t)
+	cfg.IntervalsAPIKey = intervalsKey
+	fake := newFakeIntervals(t, cfg.TZ, nil, nil)
+	tok := makeToken(t, cfg, "read")
+	r := startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg))
+	cs := privateSession(t, r, tok)
+
+	today := civil.Of(time.Now(), cfg.TZ)
+	var acts struct {
+		Activities []struct {
+			ID     int64  `json:"id"`
+			Source string `json:"source"`
+			Sport  string `json:"sport"`
+		} `json:"activities"`
+	}
+	eventually(t, "the intervals.icu ride", func() bool {
+		callTool(t, cs, "list_activities", map[string]any{"from": today.AddDays(-2).String(), "to": today.String()}, &acts)
+		return len(acts.Activities) == 1
+	})
+	if a := acts.Activities[0]; a.ID != -55751783 || a.Source != "intervals_icu" || a.Sport != "cycling" {
+		t.Fatalf("activity %+v, want id -55751783, source intervals_icu, sport cycling", a)
+	}
+	if types := syncTypes(t, cs); !slices.Contains(types, "intervals_activities") {
+		t.Errorf("get_status data types %v lack intervals_activities", types)
+	}
+	eventually(t, "the FIT download", func() bool { _, files, _, _ := fake.counts(); return files > 0 })
+	if lists, _, rest, bad := fake.counts(); lists != 1 || rest != 0 || bad != 0 {
+		t.Errorf("intervals.icu saw %d list, %d other and %d requests without the key or agent; want 1, 0, 0", lists, rest, bad)
+	}
+}
+
+// Without the key nothing calls intervals.icu, and get_status has no
+// intervals_activities.
+func TestServeWithoutIntervalsKey(t *testing.T) {
+	cfg := testCfg(t)
+	if intervalsSource(cfg, "http://127.0.0.1:1") != nil {
+		t.Fatal("intervalsSource without a key is not nil")
+	}
+	tok := makeToken(t, cfg, "read")
+	cs := privateSession(t, startServe(t, cfg), tok)
+	var types []string
+	eventually(t, "the first sync", func() bool { types = syncTypes(t, cs); return slices.Contains(types, "weight") })
+	if slices.Contains(types, "intervals_activities") {
+		t.Errorf("get_status data types %v include intervals_activities", types)
+	}
+}
+
+// Demo mode ignores the key with one log line and never calls intervals.icu.
+func TestServeDemoIgnoresIntervalsKey(t *testing.T) {
+	cfg := demoCfg(t)
+	cfg.IntervalsAPIKey = intervalsKey
+	if err := validateServeConfig(cfg); err != nil {
+		t.Fatalf("demo with an intervals.icu key: %v", err)
+	}
+	fake := newFakeIntervals(t, cfg.TZ, nil, nil)
+	logs := &lockedBuf{}
+	tel := testTel(t)
+	tel.Logger = slog.New(slog.NewJSONHandler(logs, nil))
+	r := startServeSources(t, cfg, tel, demo.New(cfg.TZ, time.Now), intervalsSource(cfg, fake.URL), garminkey.NoKey(demo.KeyExpires))
+	eventually(t, "the first sync", func() bool {
+		return strings.Contains(logs.String(), `"msg":"sync type finished","component":"ingest","data_type":"weight"`)
+	})
+	if err := r.stop(t); err != nil {
+		t.Fatal(err)
+	}
+	if lists, files, rest, _ := fake.counts(); lists+files+rest != 0 {
+		t.Errorf("demo mode made %d intervals.icu calls", lists+files+rest)
+	}
+	found := 0
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if rec["data_type"] == "intervals_activities" {
+			t.Errorf("demo mode synced intervals.icu: %s", line)
+		}
+		if rec["msg"] != "intervals.icu key ignored in demo mode" {
+			continue
+		}
+		found++
+		for k := range rec {
+			if k != "time" && k != "level" && k != "msg" && !slices.Contains(telemetry.AllowedKeys, k) {
+				t.Errorf("log key %q is not allowlisted", k)
+			}
+		}
+	}
+	if found != 1 {
+		t.Errorf("%d \"intervals.icu key ignored in demo mode\" lines, want 1", found)
+	}
+}
+
+// The intervals.icu key, and the Authorization header built from it, appear in
+// no log line (debug included) and no file in the data directory (the
+// database, its audit rows and the start-up backup), whichever way the list
+// or a file download fails.
+func TestServeIntervalsKeyNeverLogged(t *testing.T) {
+	header := base64.StdEncoding.EncodeToString([]byte("API_KEY:" + intervalsKey))
+	for _, fail := range []struct {
+		name string
+		f    func(http.ResponseWriter)
+	}{{"401", answer401}, {"429", answer429}, {"transport", hangUp}} {
+		for _, call := range []string{"list", "file"} {
+			t.Run(fail.name+" "+call, func(t *testing.T) {
+				cfg := testCfg(t)
+				cfg.IntervalsAPIKey = intervalsKey
+				var fake *fakeIntervals
+				wait := `"msg":"sync type finished","component":"ingest","data_type":"intervals_activities"`
+				if call == "list" {
+					fake = newFakeIntervals(t, cfg.TZ, fail.f, nil)
+				} else {
+					fake = newFakeIntervals(t, cfg.TZ, nil, fail.f)
+					wait = `"msg":"fit download finished","component":"ingest","data_type":"fit","activity_id":-55751783`
+				}
+				logs := &lockedBuf{}
+				tel := testTel(t)
+				tel.Logger = slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+				r := startServeSources(t, cfg, tel, emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg))
+				eventually(t, "the failed call", func() bool { return strings.Contains(logs.String(), wait) })
+				if err := r.stop(t); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(logs.String(), `"error":"intervals: `) {
+					t.Errorf("no intervals.icu error logged:\n%s", logs.String())
+				}
+				for _, secret := range []string{intervalsKey, header} {
+					if strings.Contains(logs.String(), secret) {
+						t.Errorf("the key is in the logs: %s", logs.String())
+					}
+				}
+				for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+					var rec map[string]any
+					if err := json.Unmarshal([]byte(line), &rec); err != nil {
+						t.Fatalf("log line %q: %v", line, err)
+					}
+					for k := range rec {
+						if k != "time" && k != "level" && k != "msg" && !slices.Contains(telemetry.AllowedKeys, k) {
+							t.Errorf("log %q key %q is not allowlisted", rec["msg"], k)
+						}
+					}
+				}
+				err := filepath.WalkDir(cfg.DataDir, func(p string, d fs.DirEntry, err error) error {
+					if err != nil || d.IsDir() {
+						return err
+					}
+					b, err := os.ReadFile(p)
+					if err != nil {
+						return err
+					}
+					if bytes.Contains(b, []byte(intervalsKey)) {
+						t.Errorf("the key is in %s", p)
+					}
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }

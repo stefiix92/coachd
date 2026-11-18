@@ -447,3 +447,33 @@ func TestDemoConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestIntervalsKeyConfig(t *testing.T) {
+	c, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC"}))
+	if err != nil || c.IntervalsAPIKey != "" {
+		t.Fatalf("unset: %v %q", err, c.IntervalsAPIKey)
+	}
+	p := filepath.Join(t.TempDir(), "intervals_api_key")
+	if err := os.WriteFile(p, []byte("iv-s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY_FILE": p}))
+	if err != nil || c.IntervalsAPIKey != "iv-s3cret" {
+		t.Fatalf("set: %v %q", err, c.IntervalsAPIKey)
+	}
+	for _, mode := range []os.FileMode{0o640, 0o604} {
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY_FILE": p}))
+		if err == nil || !strings.Contains(err.Error(), "COACHD_INTERVALS_API_KEY_FILE") {
+			t.Errorf("mode %04o: err = %v, want one naming COACHD_INTERVALS_API_KEY_FILE", mode, err)
+		} else if strings.Contains(err.Error(), "iv-s3cret") {
+			t.Errorf("mode %04o: the error quotes the key: %v", mode, err)
+		}
+	}
+	if _, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY_FILE": "/nonexistent/key"})); err == nil ||
+		!strings.Contains(err.Error(), "COACHD_INTERVALS_API_KEY_FILE") {
+		t.Errorf("missing file: err = %v", err)
+	}
+}

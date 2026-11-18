@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stefiix92/coachd/internal/garmin"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/telemetry"
 )
@@ -110,4 +111,47 @@ func TestLogsUseOnlyAllowedKeys(t *testing.T) {
 			t.Errorf("log key %q is not in telemetry.AllowedKeys", k)
 		}
 	}
+}
+
+// The intervals.icu paths log and trace only allowlisted keys: an unmappable
+// entry, the duplicate step, a FIT download 429, the deletion probe and an
+// unauthorized listing.
+func TestIntervalsTelemetryUsesOnlyAllowedKeys(t *testing.T) {
+	fi := newFakeIntervals()
+	bad := rideOn("i101", testToday.AddDays(-1))
+	bad.StartDate = "yesterday"
+	fi.setItems(intervalsItem(t, rideOn("i100", testToday.AddDays(-1))), intervalsItem(t, bad))
+	fi.fileErr["i100"] = &intervals.RateLimitedError{RetryAt: testNow.Add(time.Minute)}
+	rec := newKeyRecorder()
+	e := newIntervalsEnv(t, seededFake(t), fi, rec)
+	sr := traced(t, e)
+	ctx := context.Background()
+
+	mustSync(t, e)
+	e.svc.drainFIT(ctx)
+	e.clock.Set(testNow.Add(time.Hour))
+	fi.setItems()
+	fi.deleted["i100"] = true
+	mustSync(t, e)
+	if _, err := e.db.GetActivity(ctx, -100); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted ride: %v, want not found", err)
+	}
+	fi.setErr(miList, intervals.ErrUnauthorized)
+	if res := mustSync(t, e); res.Outcomes[TypeIntervals] != OutcomeAuthFailed {
+		t.Fatalf("intervals outcome = %q, want auth_failed", res.Outcomes[TypeIntervals])
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for _, k := range []string{"retry_after_s", "activity_id", "error_class", "count"} {
+		if !rec.keys[k] {
+			t.Errorf("no log carried %q: a path was not exercised", k)
+		}
+	}
+	for k := range rec.keys {
+		if !slices.Contains(telemetry.AllowedKeys, k) {
+			t.Errorf("log key %q is not in telemetry.AllowedKeys", k)
+		}
+	}
+	assertSpanKeys(t, sr)
 }

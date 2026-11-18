@@ -27,6 +27,10 @@ No. A proposal never changes once stored. The agent proposes a replacement, whic
 
 There is no official self-serve way to push workouts to the watch, so the Connect IQ [watch app](/docs/watch/) fetches approved workouts from coachd. You don't need it: an approved workout also downloads as a FIT file to copy to the watch, and many cycling workouts as a [Zwift workout](/docs/workouts/cycling/).
 
+## Does it see my MyWhoosh or Strava rides?
+
+MyWhoosh rides, yes: MyWhoosh sends them to intervals.icu, and coachd pulls them from there once you [connect intervals.icu](/docs/install/intervals/). Strava, no. Strava's API Policy forbids using its data in an AI application or exposing it through an MCP server, and intervals.icu passes on only an empty stub for activities it got from Strava. Link the device or app to intervals.icu or Garmin Connect directly instead.
+
 ## Can it run without Docker?
 
 coachd is a single static Go binary, but the documented install is the Docker image with `deploy/compose.yaml`, which also sets up the secrets, the private lane, monitoring and container hardening. Running it otherwise is not documented.

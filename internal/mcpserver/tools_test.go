@@ -713,3 +713,42 @@ func TestGetActivityPowerKeys(t *testing.T) {
 		}
 	}
 }
+
+// An intervals.icu activity has a negative ID, which get_activity takes; it
+// says where it came from, and its garmin_derived is all null. 0 stays
+// invalid.
+func TestGetActivityNegativeID(t *testing.T) {
+	e := newEnv(t, readIdentity())
+	ctx := context.Background()
+	ride := testActivity(t, -55751783, "2026-10-21", "MyWhoosh ride")
+	ride.Sport, ride.TypeKey, ride.Source, ride.SourceID = store.SportCycling, "VirtualRide", store.SourceIntervals, "i55751783"
+	run := testActivity(t, 1, "2026-10-20", "run")
+	run.Garmin = store.ActivityGarmin{TrainingLoad: fp(80), AerobicTE: fp(3), AnaerobicTE: fp(1), VO2Max: fp(52), TSS: fp(60)}
+	for _, a := range []store.Activity{ride, run} {
+		if err := e.db.UpsertActivity(ctx, a, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, detail := range []string{"summary", "laps", "series"} {
+		got := e.call(t, "get_activity", map[string]any{"id": -55751783, "detail": detail}).object(t)
+		wantNum(t, got, "id", -55751783)
+		if got["source"] != "intervals_icu" || got["sport"] != "cycling" {
+			t.Fatalf("%s: source %v sport %v", detail, got["source"], got["sport"])
+		}
+		wantNull(t, obj(t, got["garmin_derived"]), "training_load", "aerobic_te", "anaerobic_te", "vo2max", "tss")
+	}
+	e.call(t, "get_activity", map[string]any{"id": 0}).wantError(t, "activity not found")
+
+	acts := arr(t, e.call(t, "list_activities", map[string]any{"from": "2026-10-01", "to": "2026-10-31"}).object(t)["activities"])
+	if len(acts) != 2 {
+		t.Fatalf("list_activities = %v, want 2", acts)
+	}
+	for _, a := range acts {
+		m := obj(t, a)
+		want := map[float64]string{-55751783: "intervals_icu", 1: "garmin"}[m["id"].(float64)]
+		if m["source"] != want {
+			t.Errorf("activity %v: source %v, want %q", m["id"], m["source"], want)
+		}
+	}
+}
