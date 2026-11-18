@@ -15,7 +15,7 @@ Symptoms, causes and fixes. coachd's log is `docker compose logs coachd`; it car
 | `request_sync` says `rate_limited` | The agent asked again within `COACHD_SYNC_MIN_INTERVAL` (10 min). | Wait until `next_allowed_at`. |
 | `request_sync` says `already_running` | A sync is already running. | Ask again shortly. |
 | `auth_failed` | Garmin refused the key: expired or revoked. `garmin_key.days_left` is negative once expired. | [Renew the key](/docs/install/garmin-key/#renew-the-key) on the page. |
-| A `stale_data` warning on a proposal | No successful sync for over 24 h. | Check `get_status` and the log; the `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) fires after 3 h. |
+| A `stale_data` warning on a proposal | No successful sync of Garmin's data types for over 24 h (intervals.icu's does not count). | Check `get_status` and the log; the `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) fires after 3 h. |
 | `get_activity` returns no laps or series | `has_fit` is false: the FIT file isn't stored yet. | It downloads after the activity syncs; ask again later. |
 | "Garmin refused this key; nothing changed" on **Garmin key** | The new key is wrong or not active yet. | Copy it again from Garmin's page. coachd keeps the key it had. |
 

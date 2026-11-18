@@ -15,6 +15,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ### Changed
 
+- `request_sync`'s `last_sync_at` and a proposal's `stale_data` warning count Garmin's data types only, and the warning now says "Garmin sync": a working intervals.icu sync never hides a Garmin outage.
 - The `GarminSyncFailing` alert rule leaves out `intervals_activities`, so an intervals.icu outage never fires an alert named for Garmin. The local Grafana takes it at its next start; on Grafana Cloud, change that rule's query to the one in `deploy/grafana/alerts/coachd-alerts.yaml`.
 
 ## [0.5.1] - 2026-10-27

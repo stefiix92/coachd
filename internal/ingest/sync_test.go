@@ -644,6 +644,30 @@ func TestRequestSyncOutcomeWithIntervals(t *testing.T) {
 	}
 }
 
+// last_sync_at is the latest success of Garmin's data types only, so a working
+// intervals.icu sync never hides a Garmin outage.
+func TestRequestSyncLastSyncAtIsGarmins(t *testing.T) {
+	f := seededFake(t)
+	for _, m := range []string{mSearch, mSleep, mHRV, mDaily, mWeight} {
+		f.setErr(m, errors.New("boom"))
+	}
+	e := newIntervalsEnv(t, f, newFakeIntervals(), nil)
+	ctx := context.Background()
+	garminAt := testNow.Add(-30 * time.Hour)
+	for _, dt := range dataTypes {
+		if err := e.db.PutSyncState(ctx, store.SyncState{DataType: dt, LastSuccessAt: &garminAt, LastOutcome: OutcomeOK}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := e.svc.RequestSync(ctx)
+	if st := syncState(t, e, TypeIntervals); st.LastSuccessAt == nil || !st.LastSuccessAt.Equal(testNow) {
+		t.Fatalf("intervals state = %+v, want a success at %v", st, testNow)
+	}
+	if r.LastSyncAt == nil || !r.LastSyncAt.Equal(garminAt) {
+		t.Errorf("LastSyncAt = %v, want Garmin's %v", r.LastSyncAt, garminAt)
+	}
+}
+
 func TestSyncRecomputesSummaries(t *testing.T) {
 	e := newEnv(t, seededFake(t), nil)
 	mustSync(t, e)

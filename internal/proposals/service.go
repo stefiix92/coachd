@@ -223,8 +223,8 @@ func (s *Service) warningInputs(ctx context.Context, plan workout.Plan, replaces
 	if err != nil {
 		return in, err
 	}
-	for _, st := range states {
-		if st.LastSuccessAt != nil && (in.LastSyncAt == nil || st.LastSuccessAt.After(*in.LastSyncAt)) {
+	for _, st := range states { // Garmin's only: intervals.icu must not hide a Garmin outage
+		if st.FromGarmin() && st.LastSuccessAt != nil && (in.LastSyncAt == nil || st.LastSuccessAt.After(*in.LastSyncAt)) {
 			t := *st.LastSuccessAt
 			in.LastSyncAt = &t
 		}

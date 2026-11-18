@@ -76,7 +76,7 @@ func (s *svc) register(srv *mcp.Server) {
 		auth.ScopeRead, s.getSummaries)
 
 	addTool(s, srv, &mcp.Tool{Name: "request_sync", Description: "Ask coachd to sync from Garmin, and from " +
-		"intervals.icu when configured, now. Rate-limited: returns the outcome, the last successful sync time and when the next request is allowed." + descSuffix,
+		"intervals.icu when configured, now. Rate-limited: returns the outcome, the last successful Garmin sync time and when the next request is allowed." + descSuffix,
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &notDestructive, IdempotentHint: true}},
 		auth.ScopeWrite, s.requestSync)
 
@@ -289,7 +289,7 @@ type dayMetricsOut struct {
 
 type requestSyncOut struct {
 	Outcome       string  `json:"outcome" jsonschema:"synced, rate_limited, already_running, garmin_rate_limited, auth_failed or failed"`
-	LastSyncAt    *string `json:"last_sync_at" jsonschema:"Latest successful sync of any data type, RFC 3339; null if never"`
+	LastSyncAt    *string `json:"last_sync_at" jsonschema:"Latest successful sync of any of Garmin's data types, RFC 3339; null if never"`
 	NextAllowedAt string  `json:"next_allowed_at" jsonschema:"Earliest time the next request_sync is accepted, RFC 3339"`
 }
 

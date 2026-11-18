@@ -97,12 +97,19 @@ type DayMetrics struct {
 }
 
 type SyncState struct {
-	DataType                                     string // "activities","sleep","hrv","daily","weight"
+	DataType                                     string // "activities","sleep","hrv","daily","weight", or SyncTypeIntervals
 	LastAttemptAt, LastSuccessAt, FreshestDataAt *time.Time
 	LastOutcome                                  string
 	Cursor                                       string
 	BackfillDone                                 bool
 }
+
+// SyncTypeIntervals is the data type of intervals.icu activities; every other
+// data type is Garmin's.
+const SyncTypeIntervals = "intervals_activities"
+
+// FromGarmin reports whether the state is of one of Garmin's data types.
+func (s SyncState) FromGarmin() bool { return s.DataType != SyncTypeIntervals }
 
 type TokenRecord struct {
 	ID, Name              string

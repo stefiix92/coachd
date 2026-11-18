@@ -85,7 +85,7 @@ const (
 	// TypeIntervals is the activities of intervals.icu, synced only when
 	// Options.Intervals is set. It has no backfill and no catch-up: its first
 	// window reaches back BackfillDays.
-	TypeIntervals = "intervals_activities"
+	TypeIntervals = store.SyncTypeIntervals
 	TypeSleep     = "sleep"
 	TypeHRV       = "hrv"
 	TypeDaily     = "daily"
