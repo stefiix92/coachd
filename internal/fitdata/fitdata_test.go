@@ -149,7 +149,8 @@ func TestDecodeLongActivityStreams(t *testing.T) {
 	if err != nil || len(laps) != 36 || len(points) != 36000 {
 		t.Fatalf("laps=%d points=%d err=%v", len(laps), len(points), err)
 	}
-	const maxBytes = 12 << 20
+	// 14 MiB: Point grew by the power pointer; the race detector adds more.
+	const maxBytes = 14 << 20
 	if got := after.TotalAlloc - before.TotalAlloc; got > maxBytes {
 		t.Fatalf("Decode allocated %.1f MiB, want <= %d MiB", float64(got)/(1<<20), maxBytes>>20)
 	}
@@ -180,5 +181,40 @@ func TestDecodePerceived(t *testing.T) {
 			(p.RPE == nil) != (tc.wantRPE == nil) || p.RPE != nil && *p.RPE != *tc.wantRPE {
 			t.Errorf("%s: perceived = %v %v", name, p.FeelPct, p.RPE)
 		}
+	}
+}
+
+func TestDecodePower(t *testing.T) {
+	watts := []uint16{180, 220}
+	b, err := fittest.Build(fittest.Options{Start: start, Laps: 1, Records: 2, HR: 140, SpeedMS: 3,
+		PowerAt: func(i int) uint16 { return watts[i] }, LapPower: func(int) uint16 { return 200 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Points) != 2 || a.Points[0].PowerW == nil || *a.Points[0].PowerW != 180 ||
+		a.Points[1].PowerW == nil || *a.Points[1].PowerW != 220 {
+		t.Errorf("points power = %v %v", a.Points[0].PowerW, a.Points[1].PowerW)
+	}
+	if len(a.Laps) != 1 || a.Laps[0].AvgPowerW == nil || *a.Laps[0].AvgPowerW != 200 {
+		t.Errorf("lap power = %v", a.Laps[0].AvgPowerW)
+	}
+}
+
+func TestDecodeNoPower(t *testing.T) {
+	a, err := Decode(bytes.NewReader(build(t, 1, 5, 140, 3)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range a.Points {
+		if p.PowerW != nil {
+			t.Fatalf("point power = %d, want nil", *p.PowerW)
+		}
+	}
+	if a.Laps[0].AvgPowerW != nil {
+		t.Errorf("lap power = %d, want nil", *a.Laps[0].AvgPowerW)
 	}
 }

@@ -100,14 +100,14 @@ func TestActivityDetailGoldenJSON(t *testing.T) {
 	seedActivity(t, db, 9)
 	d := ActivityDetail{
 		Laps: []fitdata.Lap{{Index: 1, StartOffsetS: 60, DurationS: 300.5, DistanceKm: 1, AvgHRBpm: ip(150), MaxHRBpm: ip(171),
-			AvgPaceSPerKm: fp64(300.5), ElevGainM: fp64(12.5)}, {Index: 2}},
-		Series: []fitdata.Point{{OffsetS: 1, DistanceKm: fp64(0.01), HRBpm: ip(120), PaceSPerKm: fp64(330), AltitudeM: fp64(201.5)}, {OffsetS: 2}},
+			AvgPaceSPerKm: fp64(300.5), ElevGainM: fp64(12.5), AvgPowerW: ip(200)}, {Index: 2}},
+		Series: []fitdata.Point{{OffsetS: 1, DistanceKm: fp64(0.01), HRBpm: ip(120), PaceSPerKm: fp64(330), AltitudeM: fp64(201.5), PowerW: ip(185)}, {OffsetS: 2}},
 	}
 	const (
-		laps = `[{"Index":1,"StartOffsetS":60,"DurationS":300.5,"DistanceKm":1,"AvgHRBpm":150,"MaxHRBpm":171,"AvgPaceSPerKm":300.5,"ElevGainM":12.5},` +
-			`{"Index":2,"StartOffsetS":0,"DurationS":0,"DistanceKm":0,"AvgHRBpm":null,"MaxHRBpm":null,"AvgPaceSPerKm":null,"ElevGainM":null}]`
-		series = `[{"OffsetS":1,"DistanceKm":0.01,"HRBpm":120,"PaceSPerKm":330,"AltitudeM":201.5},` +
-			`{"OffsetS":2,"DistanceKm":null,"HRBpm":null,"PaceSPerKm":null,"AltitudeM":null}]`
+		laps = `[{"Index":1,"StartOffsetS":60,"DurationS":300.5,"DistanceKm":1,"AvgHRBpm":150,"MaxHRBpm":171,"AvgPaceSPerKm":300.5,"ElevGainM":12.5,"AvgPowerW":200},` +
+			`{"Index":2,"StartOffsetS":0,"DurationS":0,"DistanceKm":0,"AvgHRBpm":null,"MaxHRBpm":null,"AvgPaceSPerKm":null,"ElevGainM":null,"AvgPowerW":null}]`
+		series = `[{"OffsetS":1,"DistanceKm":0.01,"HRBpm":120,"PaceSPerKm":330,"AltitudeM":201.5,"PowerW":185},` +
+			`{"OffsetS":2,"DistanceKm":null,"HRBpm":null,"PaceSPerKm":null,"AltitudeM":null,"PowerW":null}]`
 	)
 	if err := db.PutActivityDetail(ctx, 9, d); err != nil {
 		t.Fatal(err)

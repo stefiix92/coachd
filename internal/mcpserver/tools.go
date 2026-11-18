@@ -61,7 +61,7 @@ func (s *svc) register(srv *mcp.Server) {
 
 	addTool(s, srv, &mcp.Tool{Name: "get_activity", Annotations: read(), Description: "One activity by ID. " +
 		"detail summary (default) returns the summary; laps adds per-lap splits; series adds laps plus a heart " +
-		"rate, pace, distance and altitude series reduced to at most 600 points. laps and series are empty when " +
+		"rate, power, pace, distance and altitude series reduced to at most 600 points. laps and series are empty when " +
 		"no FIT file is stored (has_fit false). perceived is the runner's own rating entered on the watch after " +
 		"the activity, read from the FIT file. For an activity recorded from a structured workout on the watch, " +
 		"laps and series also add workout: the steps the watch followed; the steps as executed, with seconds " +
@@ -239,6 +239,7 @@ type lapOut struct {
 	MaxHRBpm       *int     `json:"max_hr_bpm" jsonschema:"Maximum heart rate in beats per minute"`
 	AvgPaceSPerKm  *float64 `json:"avg_pace_s_per_km" jsonschema:"Average pace in seconds per kilometre"`
 	ElevationGainM *float64 `json:"elevation_gain_m" jsonschema:"Elevation gain in metres"`
+	AvgPowerW      *int     `json:"avg_power_w" jsonschema:"Average power in watts; null when the file has none"`
 }
 
 type pointOut struct {
@@ -247,6 +248,7 @@ type pointOut struct {
 	HRBpm      *int     `json:"hr_bpm" jsonschema:"Heart rate in beats per minute"`
 	PaceSPerKm *float64 `json:"pace_s_per_km" jsonschema:"Pace in seconds per kilometre; null when nearly stationary"`
 	AltitudeM  *float64 `json:"altitude_m" jsonschema:"Altitude in metres"`
+	PowerW     *int     `json:"power_w" jsonschema:"Power in watts; null when the file has none"`
 }
 
 type summariesOut struct {
@@ -446,12 +448,12 @@ func (s *svc) getActivity(ctx context.Context, in getActivityInput) (getActivity
 	for _, l := range d.Laps {
 		out.Laps = append(out.Laps, lapOut{Index: l.Index, StartOffsetS: whole(l.StartOffsetS), DurationS: whole(l.DurationS),
 			DistanceKm: round(l.DistanceKm, 2), AvgHRBpm: l.AvgHRBpm, MaxHRBpm: l.MaxHRBpm,
-			AvgPaceSPerKm: roundPtr(l.AvgPaceSPerKm, 2), ElevationGainM: roundPtr(l.ElevGainM, 1)})
+			AvgPaceSPerKm: roundPtr(l.AvgPaceSPerKm, 2), ElevationGainM: roundPtr(l.ElevGainM, 1), AvgPowerW: l.AvgPowerW})
 	}
 	if detail == "series" {
 		for _, p := range d.Series {
 			out.Series = append(out.Series, pointOut{OffsetS: whole(p.OffsetS), DistanceKm: roundPtr(p.DistanceKm, 2),
-				HRBpm: p.HRBpm, PaceSPerKm: roundPtr(p.PaceSPerKm, 2), AltitudeM: roundPtr(p.AltitudeM, 1)})
+				HRBpm: p.HRBpm, PaceSPerKm: roundPtr(p.PaceSPerKm, 2), AltitudeM: roundPtr(p.AltitudeM, 1), PowerW: p.PowerW})
 		}
 	}
 	if d.Workout != nil {

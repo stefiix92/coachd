@@ -11,7 +11,7 @@ Every tool coachd offers an agent. Write tools need the write scope and change o
 |---|---|---|
 | `get_status` | read | Sync freshness per Garmin data type, how much history is stored, days until the Garmin key expires, and the workout proposals waiting for your approval. |
 | `list_activities` | read | Activity summaries for a date range (at most 366 days), newest first, optionally one sport, a page at a time. |
-| `get_activity` | read | One activity. Detail `summary` (default); `laps` adds per-lap splits; `series` adds heart rate, pace, distance and altitude, reduced to at most 600 points. For a structured workout, `laps` and `series` add the planned and executed steps and the delivered proposal it carried out. `perceived` is your own post-activity rating. |
+| `get_activity` | read | One activity. Detail `summary` (default); `laps` adds per-lap splits; `series` adds heart rate, power, pace, distance and altitude, reduced to at most 600 points. For a structured workout, `laps` and `series` add the planned and executed steps and the delivered proposal it carried out. `perceived` is your own post-activity rating. |
 | `get_daily_health` | read | Per-day sleep, HRV, resting heart rate, SpO2 and weight, at most 92 days. Sleep score, HRV status and baseline, Body Battery and stress are under `garmin_derived`. |
 | `get_summaries` | read | Numbers computed at ingest, at most 366 days: weekly volume per sport (Monday-start weeks) and per-day rolling HRV, resting heart rate, sleep and longest-run figures. |
 | `request_sync` | write | Ask coachd to sync from Garmin now. Rate-limited (`COACHD_SYNC_MIN_INTERVAL`, 10 min by default). |

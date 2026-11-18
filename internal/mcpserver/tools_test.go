@@ -680,3 +680,36 @@ func TestActivityPerceived(t *testing.T) {
 		t.Fatalf("list_activities: %v", got)
 	}
 }
+
+// Power is in laps and series as avg_power_w and power_w: a value, or null
+// when the file has none.
+func TestGetActivityPowerKeys(t *testing.T) {
+	e := newEnv(t, readIdentity())
+	ctx := context.Background()
+	if err := e.db.UpsertActivity(ctx, testActivity(t, 60, "2026-10-22", "power"), nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err := fittest.Build(fittest.Options{Start: testNow.Add(-24 * time.Hour).UTC(), Laps: 1, Records: 4, HR: 150, SpeedMS: 3,
+		PowerAt: func(int) uint16 { return 210 }, LapPower: func(int) uint16 { return 205 }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeFITBytes(t, e, 60, b)
+	got := e.call(t, "get_activity", map[string]any{"id": 60, "detail": "series"}).object(t)
+	wantNum(t, obj(t, arr(t, got["laps"])[0]), "avg_power_w", 205)
+	wantNum(t, obj(t, arr(t, got["series"])[0]), "power_w", 210)
+
+	if err := e.db.UpsertActivity(ctx, testActivity(t, 61, "2026-10-22", "nopower"), nil); err != nil {
+		t.Fatal(err)
+	}
+	storeFIT(t, e, 61, 4, 1)
+	got = e.call(t, "get_activity", map[string]any{"id": 61, "detail": "series"}).object(t)
+	for _, c := range []struct {
+		m   map[string]any
+		key string
+	}{{obj(t, arr(t, got["laps"])[0]), "avg_power_w"}, {obj(t, arr(t, got["series"])[0]), "power_w"}} {
+		if v, ok := c.m[c.key]; !ok || v != nil {
+			t.Errorf("%s = %v (present %v), want null", c.key, v, ok)
+		}
+	}
+}
