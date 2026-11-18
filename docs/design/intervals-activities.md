@@ -24,7 +24,7 @@ gain power, for every source. **[call]**
 **Goals**
 - Pull activities from intervals.icu on every sync, with their original FIT file, and store them
   as activities beside Garmin's. **[owner]**
-- Never show one session twice: Garmin wins over an intervals.icu copy. **[call]**
+- Never show one session twice: when both sources hold it, the richer copy is shown. **[owner]**
 - Average power per lap and power in the series, from the FIT file, for all activities. **[call]**
 - The agent sees where an activity came from. **[call]**
 
@@ -46,7 +46,8 @@ gain power, for every source. **[call]**
 **Anti-goals**
 - The intervals.icu key in any log, span, metric, audit row, page, MCP result or backup.
 - An intervals.icu failure hurting Garmin sync, or the other way round.
-- A Garmin activity hidden or deleted because of something intervals.icu said.
+- A copy lost. The copy that is not shown stays stored, with its raw JSON and FIT file, and is
+  shown again as soon as the other one goes away.
 - Verdicts. intervals.icu's own load and fitness numbers (training load, CTL, intensity) are not
   taken in. **[call]** coachd computes its own numbers and the agent judges.
 
@@ -93,23 +94,35 @@ An intervals.icu activity is stored when all of these hold:
 1. Its ID is `i` followed by digits. (Strava stubs have other IDs and no data.)
 2. `source` is neither `STRAVA` nor `GARMIN_CONNECT`. A Garmin activity reaches coachd from Garmin.
 3. It has a start time and a positive elapsed time.
-4. No live Garmin activity of the same coachd sport overlaps it: `[start, start + elapsed]` against
-   the Garmin activity's `[start, start + duration]` (the stored `StartUTC` and `DurationS`), where
-   the shared time is at least half of the shorter of the two. **[call]** So a walk recorded on the
-   watch, or a ride that only touches the next one, hides nothing.
+Rule 2 and the duplicate rule below keep one session from showing twice.
 
-Ingest checks rule 4 before it upserts. The store's upsert clears a soft delete, so an entry that
-rule 4 excludes is never passed to it.
+**Duplicates: the richer copy wins** **[owner]**
 
-Rule 4 also runs the other way. When a Garmin activity that overlaps a stored intervals.icu activity
-appears later (the runner also recorded the ride on the watch and synced it afterwards), the
-intervals.icu activity is soft-deleted on the next sync, with an `activity_deleted` audit row.
-Garmin's copy carries Garmin's derived values and the workout the watch followed, so it wins.
-**[call]**, open with the owner: see §16.
+After both sources have synced, coachd looks at the sync window for pairs of one Garmin and one
+intervals.icu activity that are the same session: same coachd sport, and the time both cover
+(`[start, start + duration]` in UTC, from the stored `StartUTC` and `DurationS`) is at least half of
+the shorter one. **[call]** So a walk recorded on the watch, or a ride that only touches the next
+one, is not a duplicate.
 
-A recent intervals.icu activity may fire the post-activity webhook and then be soft-deleted when a
-late Garmin copy arrives. That is accepted: it needs a ride recorded twice and a slow watch sync,
-and the webhook's reader fetches the activity anyway. **[call]**
+Of such a pair, one is shown and the other hidden:
+
+1. The copy with power wins over the copy without. Power is known from the list entry: Garmin's
+   `avgPower`, intervals.icu's average watts.
+2. Else the copy with heart rate wins over the copy without.
+3. Else Garmin's copy wins: it carries Garmin's derived values and the workout the watch followed.
+
+**[call]** for the order of 1 to 3; the owner said "the richer one". Numbers only, no judgement of
+the session.
+
+The hidden copy is marked with the ID of the copy that hides it (§7). Every read, summary and
+planned-vs-actual match skips it, exactly as they skip a soft-deleted activity. The step is
+recomputed for the window on every sync, so it is idempotent and it reverses itself: when the
+winner is deleted at its source, or a late copy turns out richer, the marks follow. A hidden copy's
+FIT file is still downloaded.
+
+Two things are accepted **[call]**: when the intervals.icu copy wins, Garmin's derived values for
+that session are not shown; and the post-activity webhook may fire for a copy that a later, richer
+copy then hides (its reader fetches the activity anyway).
 
 **Mapping**
 
@@ -141,6 +154,9 @@ The name is untrusted free text and is labelled exactly as a Garmin activity nam
   checks that nothing assumes `id > 0` (cursor encoding, FIT file names, URL and tool input
   validation, the device API) and fixes what does.
 - The raw list entry is kept as `raw_json`, as for Garmin.
+- `activities` also gains `hidden_by INTEGER`, the ID of the richer copy, null for most rows. "Live"
+  becomes: not soft-deleted and not hidden. It is separate from `deleted_at` because Garmin's upsert
+  clears a soft delete on every sync.
 - Every query that exists for Garmin's sake is limited to `source = 'garmin'`: the reconcile
   listing (`ActivityIDsInRange`), the FIT worker's Garmin queue, and the backfill. Queries that
   serve reads and summaries (`ListActivities`, `WeeklyVolume`, `Runs`, `MaxHR`) take every source.
@@ -148,8 +164,8 @@ The name is untrusted free text and is labelled exactly as a Garmin activity nam
 
 ## 8. Sync
 
-A new data type `intervals_activities`, after `activities` in the sync order (so rule 4 sees fresh
-Garmin data), present only when the key is configured. It has its own `sync_state` row, outcome and
+A new data type `intervals_activities`, after `activities` in the sync order (so the duplicate step sees
+fresh Garmin data), present only when the key is configured. It has its own `sync_state` row, outcome and
 span like every other type.
 
 - **Window**: as for Garmin activities (`today − 14`, or two days before the last success if that is
@@ -166,8 +182,9 @@ span like every other type.
   the window whose ID is not in the raw list response (before the rules of §6) is probed with `ActivityExists`. A 404 soft-deletes it with an
   `activity_deleted` audit row; any other answer keeps it. At most ten probes per sync.
   **[call]** No canary is needed as for Garmin: the listing itself just succeeded with the same key.
-- **Restored**: an activity listed again after a soft delete is live again, as for Garmin, unless
-  rule 4 still excludes it.
+- **Restored**: an activity listed again after a soft delete is live again, as for Garmin.
+- **Duplicates**: the step of §6 runs after this type, when it and `activities` both finished
+  without error in this sync; otherwise the marks stay as they were.
 - **FIT worker**: one queue, both sources. Each pending activity is downloaded from its own source;
   a pause on one source leaves the other draining. The file goes through the same integrity check,
   decoding and detail storage as a Garmin FIT. Its file is named by `source_id`
@@ -235,8 +252,10 @@ span like every other type.
   the size cap, the key absent from every error string.
 - Mapping: each sport, the ID rule, a Strava stub and a Garmin-sourced entry skipped, manual,
   non-FIT file type.
-- Overlap: skipped when a Garmin activity overlaps; stored when it only touches a different day's
-  ride; soft-deleted when the Garmin copy arrives later; restored when listed again and no overlap.
+- Duplicates: power beats none, then heart rate, then Garmin; a different sport or a short overlap
+  is no duplicate; the hidden copy is absent from lists, summaries and `get_activity`; marks move
+  when a richer copy arrives late and clear when the winner is deleted; the step is idempotent; a
+  Garmin upsert does not unhide.
 - Sync: off without the key; independent outcomes and pauses in both directions; first-sync window;
   idempotent re-sync; deletion probe (404 deletes, error keeps, cap of ten).
 - Store: migration on a populated database; the Garmin reconcile never sees an intervals.icu
@@ -254,10 +273,3 @@ span like every other type.
   sync time.
 - Wording of docs and log messages.
 
-## 16. Open with the owner
-
-- **A ride recorded twice.** If the owner also records a MyWhoosh ride on the watch, rule 4 keeps
-  the Garmin copy. When the watch had no power source, that copy has no power and the intervals.icu
-  copy, which has it, is hidden. The design keeps "Garmin wins" because it is one rule with no
-  merging. If double recording is the owner's habit, the rule becomes "the copy with power wins,
-  Garmin on a tie".
