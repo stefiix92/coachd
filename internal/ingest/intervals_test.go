@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"slices"
 	"strconv"
 	"sync"
@@ -715,5 +716,38 @@ func TestIntervalsHaveNoBackfill(t *testing.T) {
 	mustBackfill(t, e)
 	if n := fi.count(miList); n != 2 {
 		t.Errorf("intervals list calls = %d, want 2 (the sync's 120 days only)", n)
+	}
+}
+
+// TestMapIntervalsRealShape maps the entries of a live-shaped list response:
+// the MyWhoosh ride is imported with power and a pending FIT file, the Strava
+// stub is not imported, the GPX upload gets a summary only.
+func TestMapIntervalsRealShape(t *testing.T) {
+	raw, err := os.ReadFile("../intervals/testdata/list_real.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acts []intervals.Activity
+	if err := json.Unmarshal(raw, &acts); err != nil {
+		t.Fatal(err)
+	}
+	tz := bratislava(t)
+	ride, err := MapIntervalsActivity(acts[0], tz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ride.ID != -900000001 || ride.Sport != store.SportCycling || ride.FITStatus != store.FITPending || !ride.HasPower ||
+		ride.Date.String() != "2026-11-20" || ride.DurationS != 3483 || ride.AvgHR == nil || *ride.AvgHR != 143 {
+		t.Errorf("ride = %+v", ride)
+	}
+	if _, err := MapIntervalsActivity(acts[1], tz); !errors.Is(err, errNotImported) {
+		t.Errorf("stub err = %v, want errNotImported", err)
+	}
+	gpx, err := MapIntervalsActivity(acts[2], tz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gpx.FITStatus != store.FITUnavailable || gpx.HasPower || gpx.DurationS != 5487 {
+		t.Errorf("gpx = %+v", gpx)
 	}
 }

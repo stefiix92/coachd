@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -224,5 +225,43 @@ func TestKeyNeverInErrors(t *testing.T) {
 		if s := err.Error(); strings.Contains(s, testKey) || strings.Contains(s, b64) {
 			t.Errorf("%s leaks key: %s", name, s)
 		}
+	}
+}
+
+// TestListActivitiesRealShape decodes entries shaped like a live response of
+// 2026-11-20 (testdata/list_real.json): a MyWhoosh ride sent by its own link,
+// a Strava stub and a GPX upload. Field names, value types and nulls are the
+// API's; identifiers, names and health values are made up.
+func TestListActivitiesRealShape(t *testing.T) {
+	body, err := os.ReadFile("testdata/list_real.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) { w.Write(body) })
+	from, _ := civil.Parse("2026-11-10")
+	to, _ := civil.Parse("2026-11-20")
+	items, err := c.ListActivities(context.Background(), from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("len %d", len(items))
+	}
+	ride, stub, gpx := items[0].V, items[1].V, items[2].V
+	if ride.ID != "i900000001" || ride.Source != "OAUTH_CLIENT" || ride.FileType != "fit" || ride.Type != "VirtualRide" ||
+		ride.StartDate != "2026-11-20T15:33:48Z" || ride.StartDateLocal != "2026-11-20T16:33:48" {
+		t.Errorf("ride %+v", ride)
+	}
+	if ride.AverageWatts == nil || *ride.AverageWatts != 151 || ride.AverageHeartrate == nil || *ride.AverageHeartrate != 143 ||
+		ride.MaxHeartrate == nil || *ride.MaxHeartrate != 171 || ride.ElapsedTime == nil || *ride.ElapsedTime != 3483 ||
+		ride.MovingTime == nil || *ride.MovingTime != 3483 || ride.Distance == nil || *ride.Distance != 7327.28 ||
+		ride.TotalElevationGain == nil || *ride.TotalElevationGain != 586 {
+		t.Errorf("ride numbers %+v", ride)
+	}
+	if stub.ID != "90000000002" || stub.Source != "STRAVA" || stub.StartDate != "" || stub.ElapsedTime != nil {
+		t.Errorf("stub %+v", stub)
+	}
+	if gpx.FileType != "gpx" || gpx.Source != "UPLOAD" || gpx.AverageWatts != nil || gpx.ElapsedTime == nil || *gpx.ElapsedTime != 5487 {
+		t.Errorf("gpx %+v", gpx)
 	}
 }
