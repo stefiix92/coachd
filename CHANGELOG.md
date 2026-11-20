@@ -6,6 +6,8 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-20
+
 ### Added
 
 - **Activities from intervals.icu** (`docs/design/intervals-activities.md`): with an intervals.icu API key in `COACHD_INTERVALS_API_KEY_FILE`, coachd also pulls the activities that reach intervals.icu but never Garmin Connect, such as MyWhoosh rides, with their original FIT files, on every sync ([intervals.icu](https://stefiix92.github.io/coachd/docs/install/intervals/)). The first sync reaches back `COACHD_BACKFILL_DAYS`, listing 90 days per call. Strava-sourced and Garmin-sourced activities are skipped. When both sources hold one session, the richer copy is shown (power, then heart rate, then Garmin's) and the other stays stored, hidden. An intervals.icu failure never stops Garmin's sync, or the other way round, and an intervals.icu failure alone never makes `request_sync` answer `garmin_rate_limited` or `synced`. Off without the key; demo mode ignores it.
@@ -17,6 +19,10 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 - `request_sync`'s `last_sync_at` and a proposal's `stale_data` warning count Garmin's data types only, and the warning now says "Garmin sync": a working intervals.icu sync never hides a Garmin outage.
 - The `GarminSyncFailing` alert rule leaves out `intervals_activities`, so an intervals.icu outage never fires an alert named for Garmin. The local Grafana takes it at its next start; on Grafana Cloud, change that rule's query to the one in `deploy/grafana/alerts/coachd-alerts.yaml`.
+
+### Security
+
+- Built with Go 1.27.4, which fixes [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859): an HTTP/1 server using `MaxBytesReader` could crash when a handler read the request body while writing the response. Images up to 0.5.1 were built with Go 1.27.3.
 
 ## [0.5.1] - 2026-10-27
 
