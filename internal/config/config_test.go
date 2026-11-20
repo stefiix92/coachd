@@ -448,6 +448,29 @@ func TestDemoConfig(t *testing.T) {
 	}
 }
 
+func TestIntervalsKeyFromVariable(t *testing.T) {
+	c, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY": " iv-s3cret\n"}))
+	if err != nil || c.IntervalsAPIKey != "iv-s3cret" {
+		t.Fatalf("set: %v %q", err, c.IntervalsAPIKey)
+	}
+	// compose passes an unset variable as empty: that is off, not an error.
+	c, err = Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY": "  "}))
+	if err != nil || c.IntervalsAPIKey != "" {
+		t.Fatalf("blank: %v %q", err, c.IntervalsAPIKey)
+	}
+	p := filepath.Join(t.TempDir(), "intervals_api_key")
+	if err := os.WriteFile(p, []byte("from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY": "iv-s3cret", "COACHD_INTERVALS_API_KEY_FILE": p}))
+	if err == nil || err.Error() != "COACHD_INTERVALS_API_KEY and COACHD_INTERVALS_API_KEY_FILE: set only one" {
+		t.Fatalf("both: err = %v", err)
+	}
+	if strings.Contains(err.Error(), "iv-s3cret") {
+		t.Fatal("key in error")
+	}
+}
+
 func TestIntervalsKeyConfig(t *testing.T) {
 	c, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC"}))
 	if err != nil || c.IntervalsAPIKey != "" {

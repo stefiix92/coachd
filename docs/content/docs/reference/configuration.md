@@ -32,6 +32,7 @@ Settings live in `deploy/.env` (from [`.env.example`](https://github.com/stefiix
 |---|---|---|
 | `COACHD_NTFY_URL` | off | Full ntfy topic URL, for example `https://ntfy.sh/<secret-topic>`. Needs the public lane and `COACHD_PUBLIC_URL`. See [ntfy](/docs/install/notifications/#ntfy). |
 | `COACHD_WEBHOOK_URL` | off | Where to POST the [post-run webhook](/docs/install/notifications/#post-run-webhook). Treat it as a secret. |
+| `COACHD_INTERVALS_API_KEY` | off | Your [intervals.icu](/docs/install/intervals/) API key: also pull activities that never reach Garmin. A secret; or keep it in a secret file with `COACHD_INTERVALS_API_KEY_FILE`. |
 | `COACHD_DEVICE_API` | off | `on` serves `/device/v1/*` on the public listener for the [watch app](/docs/watch/#server-setup). Anything other than `on`, `off` or empty is an error. |
 
 ## Tuning
