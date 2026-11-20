@@ -35,7 +35,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
-    image: grafana/pdc-agent:0.0.67@sha256:e17e65368ca5d8267e8996030869c5cf1b6929e0344e08e90eef6e1179172601
+    image: grafana/pdc-agent:0.0.68@sha256:f2c3b93bd1881b5f8fb9f6bf3d7e6d1dedeaf213a567172f278082e735a63c99
     # The agent only accepts the token as a -token flag. Read it from the secret
     # file inside the container, so it is not in compose.yaml or `docker inspect`.
     entrypoint:
