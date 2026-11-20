@@ -11,28 +11,41 @@ It is off unless the key is set. Like the Garmin key, it never leaves the server
 
 1. In intervals.icu's settings, under **Developer Settings**, create an API key.
 2. Link MyWhoosh with intervals.icu there, so finished rides upload by themselves, and check that your last ride shows up on intervals.icu.
-3. Store the key and mount it with a compose override:
+3. Put the key in `.env` and restart coachd:
 
-   ```bash
-   put_secret intervals_api_key 65532:65532     # the helper from Secrets
-   ```
-
-   ```yaml {filename="compose.override.yaml"}
-   services:
-     coachd:
-       environment:
-         COACHD_INTERVALS_API_KEY_FILE: /run/secrets/intervals_api_key
-       secrets: [intervals_api_key]
-   secrets:
-     intervals_api_key:
-       file: ./secrets/intervals_api_key
+   ```bash {filename=".env"}
+   COACHD_INTERVALS_API_KEY=your-key
    ```
 
    ```bash
+   chmod 600 .env
    docker compose up -d --force-recreate coachd
    ```
 
-   If you already have a `compose.override.yaml` (for the [webhook token](/docs/install/notifications/#post-run-webhook)), merge the two. If `.env` sets `COMPOSE_FILE`, add `:compose.override.yaml` to it: compose reads the override by itself only without `COMPOSE_FILE`.
+### Or keep the key in a secret file
+
+In `.env` the key can be read by anyone who can read that file or run `docker inspect` on the host. To keep it in a file only coachd can read, like the Garmin key, leave `COACHD_INTERVALS_API_KEY` empty and mount a secret with a compose override:
+
+```bash
+put_secret intervals_api_key 65532:65532     # the helper from Secrets
+```
+
+```yaml {filename="compose.override.yaml"}
+services:
+  coachd:
+    environment:
+      COACHD_INTERVALS_API_KEY_FILE: /run/secrets/intervals_api_key
+    secrets: [intervals_api_key]
+secrets:
+  intervals_api_key:
+    file: ./secrets/intervals_api_key
+```
+
+```bash
+docker compose up -d --force-recreate coachd
+```
+
+If you already have a `compose.override.yaml` (for the [webhook token](/docs/install/notifications/#post-run-webhook)), merge the two. If `.env` sets `COMPOSE_FILE`, add `:compose.override.yaml` to it: compose reads the override by itself only without `COMPOSE_FILE`. Setting both the variable and the file is an error at start.
 
 coachd reads the key only at start. The first sync reaches back `COACHD_BACKFILL_DAYS` (730 days by default), 90 days per list call; the FIT files then arrive one by one. Both go `COACHD_BACKFILL_DELAY` apart. Later syncs look at the last 14 days, or further back after a gap. Demo mode ignores the key, with a line in the log.
 

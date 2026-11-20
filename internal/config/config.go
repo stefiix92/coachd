@@ -26,7 +26,8 @@ type Config struct {
 	PollInterval, BackfillDelay      time.Duration
 	SyncMinInterval                  time.Duration
 	BackfillDays                     int
-	// IntervalsAPIKey, from COACHD_INTERVALS_API_KEY_FILE, turns on
+	// IntervalsAPIKey, from COACHD_INTERVALS_API_KEY or the file named by
+	// COACHD_INTERVALS_API_KEY_FILE, turns on
 	// activities from intervals.icu; empty means off. A secret: never logged.
 	IntervalsAPIKey string
 	// PublicURL is the runner page's origin (no trailing slash); NtfyURL is
@@ -227,7 +228,11 @@ func Load(getenv func(string) string) (*Config, error) {
 			return nil, fmt.Errorf("COACHD_GARMIN_KEY_EXPIRES: %w", err)
 		}
 	}
+	c.IntervalsAPIKey = strings.TrimSpace(getenv("COACHD_INTERVALS_API_KEY"))
 	if p := getenv("COACHD_INTERVALS_API_KEY_FILE"); p != "" {
+		if c.IntervalsAPIKey != "" {
+			return nil, fmt.Errorf("COACHD_INTERVALS_API_KEY and COACHD_INTERVALS_API_KEY_FILE: set only one")
+		}
 		if c.IntervalsAPIKey, err = ReadSecretFile(p); err != nil {
 			return nil, fmt.Errorf("COACHD_INTERVALS_API_KEY_FILE: %w", err)
 		}

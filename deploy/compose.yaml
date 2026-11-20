@@ -45,6 +45,7 @@ services:
       COACHD_DEVICE_API: ${COACHD_DEVICE_API:-}
       COACHD_NTFY_TOKEN_FILE: /run/secrets/ntfy_token
       COACHD_WEBHOOK_URL: ${COACHD_WEBHOOK_URL:-}
+      COACHD_INTERVALS_API_KEY: ${COACHD_INTERVALS_API_KEY:-}
       # Optional tuning; empty means the built-in default (see .env.example).
       COACHD_POLL_INTERVAL: ${COACHD_POLL_INTERVAL:-}
       COACHD_BACKFILL_DAYS: ${COACHD_BACKFILL_DAYS:-}

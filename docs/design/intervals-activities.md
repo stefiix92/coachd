@@ -63,6 +63,10 @@ makes one list call per sync (one per 90 days on the first) and one file call pe
 - `COACHD_INTERVALS_API_KEY_FILE`: path to a file holding the key, read with the same secret-file
   checks as the Garmin key. Unset means the feature is off and nothing in this document runs.
   **[call]**
+- `COACHD_INTERVALS_API_KEY`: the key itself, as an alternative (**[owner]**, 2026-11-20, for a
+  set-up with no compose override). Surrounding whitespace is trimmed; empty means unset. Setting
+  both is a start-up error. The value is server-side all the same, but anyone who can read `.env`
+  or run `docker inspect` on the host can read it; the file is the stricter choice.
 - The athlete ID is `0` (intervals.icu's "the key's own athlete"), so there is no second setting.
 - Ignored with a start-up log line when `COACHD_DEMO=true`. **[call]**
 

@@ -6,6 +6,12 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-20
+
+### Added
+
+- **`COACHD_INTERVALS_API_KEY`:** the intervals.icu key can be set in `.env` directly, with no compose override ([intervals.icu](https://stefiix92.github.io/coachd/docs/install/intervals/)). `COACHD_INTERVALS_API_KEY_FILE` still works and is the stricter choice: a value in `.env` can be read by anyone who can read that file or run `docker inspect` on the host. Setting both is an error at start. Take the new `deploy/compose.yaml`, which passes the variable to coachd.
+
 ## [0.6.0] - 2026-11-20
 
 ### Added
