@@ -112,6 +112,9 @@ func TestAlertRulesDataSources(t *testing.T) {
 func TestAlertRuleSemantics(t *testing.T) {
 	rs := rules(t)
 	for title, want := range map[string][]string{
+		// An intervals.icu outage alone must not fire an alert named for Garmin.
+		"GarminSyncFailing": {`expr: 'max(coachd_garmin_sync_last_success_age_seconds{data_type!="intervals_activities"})'`,
+			"- evaluator: {type: gt, params: [10800]}", "noDataState: Alerting"},
 		"GarminKeyExpiring": {"- evaluator: {type: lt, params: [8]}"},
 		"BackupStale":       {"- evaluator: {type: gt, params: [172800]}", "for: 10m", "noDataState: Alerting"},
 	} {

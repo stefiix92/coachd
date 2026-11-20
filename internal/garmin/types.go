@@ -62,6 +62,7 @@ type ActivityDTO struct {
 	ElevationLoss           *float64 `json:"elevationLoss"`
 	AverageHR               *float64 `json:"averageHR"`
 	MaxHR                   *float64 `json:"maxHR"`
+	AvgPower                *float64 `json:"avgPower"` // watts
 	ActivityTrainingLoad    *float64 `json:"activityTrainingLoad"`
 	AerobicTrainingEffect   *float64 `json:"aerobicTrainingEffect"`
 	AnaerobicTrainingEffect *float64 `json:"anaerobicTrainingEffect"`

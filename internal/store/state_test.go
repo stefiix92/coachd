@@ -30,3 +30,24 @@ func TestSyncStateRoundTrip(t *testing.T) {
 		t.Fatalf("%+v %v", all, err)
 	}
 }
+
+// DeleteSyncState removes one data type's row and leaves the others; an
+// absent row is no error.
+func TestDeleteSyncState(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	now := time.Date(2026, 11, 18, 6, 0, 0, 0, time.UTC)
+	for _, dt := range []string{"activities", "intervals_activities"} {
+		if err := db.PutSyncState(ctx, SyncState{DataType: dt, LastSuccessAt: &now, LastOutcome: "ok"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := db.DeleteSyncState(ctx, "intervals_activities"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := db.ListSyncStates(ctx)
+	if err != nil || len(all) != 1 || all[0].DataType != "activities" || all[0].LastSuccessAt == nil {
+		t.Fatalf("after delete: %+v %v, want only activities", all, err)
+	}
+}

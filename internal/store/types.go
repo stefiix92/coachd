@@ -37,6 +37,14 @@ type ActivityGarmin struct {
 	TrainingLoad, AerobicTE, AnaerobicTE, VO2Max, TSS *float64
 }
 
+// Source names where an activity came from.
+type Source string
+
+const (
+	SourceGarmin    Source = "garmin"
+	SourceIntervals Source = "intervals_icu"
+)
+
 type Activity struct {
 	ID                                                  int64
 	StartLocal, StartUTC                                time.Time
@@ -54,6 +62,15 @@ type Activity struct {
 	FITPath     string // relative to DataDir
 	FITStatus   FITStatus
 	FITAttempts int
+	// Source is where the activity came from; empty is SourceGarmin on upsert.
+	Source Source
+	// SourceID is the source's own ID; "" for Garmin (stored NULL).
+	SourceID string
+	// HasPower: the source's list entry reports average power above zero.
+	HasPower bool
+	// HiddenBy is the ID of the richer copy of the same session; nil when shown.
+	// UpsertActivity never writes it, only SetHiddenBy.
+	HiddenBy *int64
 }
 
 // DailyGarmin holds Garmin-proprietary derived daily values.
@@ -80,12 +97,19 @@ type DayMetrics struct {
 }
 
 type SyncState struct {
-	DataType                                     string // "activities","sleep","hrv","daily","weight"
+	DataType                                     string // "activities","sleep","hrv","daily","weight", or SyncTypeIntervals
 	LastAttemptAt, LastSuccessAt, FreshestDataAt *time.Time
 	LastOutcome                                  string
 	Cursor                                       string
 	BackfillDone                                 bool
 }
+
+// SyncTypeIntervals is the data type of intervals.icu activities; every other
+// data type is Garmin's.
+const SyncTypeIntervals = "intervals_activities"
+
+// FromGarmin reports whether the state is of one of Garmin's data types.
+func (s SyncState) FromGarmin() bool { return s.DataType != SyncTypeIntervals }
 
 type TokenRecord struct {
 	ID, Name              string

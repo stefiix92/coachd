@@ -16,14 +16,15 @@ import (
 
 const activityCols = `id, start_local, start_utc, date, week_start, type_key, sport, name_untrusted,
 	distance_m, duration_s, moving_s, elev_gain_m, elev_loss_m, avg_hr, max_hr, manual,
-	training_load, aerobic_te, anaerobic_te, vo2max, tss, fit_path, fit_status, fit_attempts`
+	training_load, aerobic_te, anaerobic_te, vo2max, tss, fit_path, fit_status, fit_attempts,
+	source, source_id, has_power`
 
 // activityReadCols are activityCols plus the columns only the detail writes.
-const activityReadCols = activityCols + `, perceived_feel, perceived_rpe`
+const activityReadCols = activityCols + `, perceived_feel, perceived_rpe, hidden_by`
 
 const defaultListLimit = 50
 
-// UpsertActivity inserts or updates an activity keyed by Garmin activity ID.
+// UpsertActivity inserts or updates an activity keyed by activity ID (negative for intervals.icu). It never writes hidden_by.
 // FIT fields are written only on insert (empty FITStatus becomes "pending");
 // on conflict they are left untouched, only SetFIT changes FIT state. Garmin
 // listing an activity again restores it if it was soft-deleted.
@@ -32,9 +33,17 @@ func (db *DB) UpsertActivity(ctx context.Context, a Activity, raw []byte) error 
 	if status == "" {
 		status = FITPending
 	}
+	src := a.Source
+	if src == "" {
+		src = SourceGarmin
+	}
+	var sourceID any
+	if a.SourceID != "" {
+		sourceID = a.SourceID
+	}
 	_, err := db.sql.ExecContext(ctx, `
 INSERT INTO activities (`+activityCols+`, raw_json)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	start_local=excluded.start_local, start_utc=excluded.start_utc, date=excluded.date,
 	week_start=excluded.week_start, type_key=excluded.type_key, sport=excluded.sport,
@@ -43,12 +52,13 @@ ON CONFLICT(id) DO UPDATE SET
 	elev_loss_m=excluded.elev_loss_m, avg_hr=excluded.avg_hr, max_hr=excluded.max_hr,
 	manual=excluded.manual, training_load=excluded.training_load, aerobic_te=excluded.aerobic_te,
 	anaerobic_te=excluded.anaerobic_te, vo2max=excluded.vo2max, tss=excluded.tss,
+	source=excluded.source, source_id=excluded.source_id, has_power=excluded.has_power,
 	raw_json=excluded.raw_json, deleted_at=NULL`,
 		a.ID, a.StartLocal.Format(time.RFC3339Nano), fmtTime(a.StartUTC), a.Date.String(), a.WeekStart.String(),
 		a.TypeKey, string(a.Sport), a.NameUntrusted,
 		a.DistanceM, a.DurationS, a.MovingS, a.ElevGainM, a.ElevLossM, a.AvgHR, a.MaxHR, boolInt(a.Manual),
 		a.Garmin.TrainingLoad, a.Garmin.AerobicTE, a.Garmin.AnaerobicTE, a.Garmin.VO2Max, a.Garmin.TSS,
-		a.FITPath, string(status), a.FITAttempts, raw)
+		a.FITPath, string(status), a.FITAttempts, string(src), sourceID, boolInt(a.HasPower), raw)
 	if err != nil {
 		return fmt.Errorf("store: upsert activity: %w", err)
 	}
@@ -74,11 +84,23 @@ func scanActivity(s scanner) (Activity, error) {
 		tl, ate, nte, vo2, tss  sql.NullFloat64
 		feel                    sql.NullInt64
 		rpe                     sql.NullFloat64
+		source                  string
+		sourceID                sql.NullString
+		hasPower                int
+		hiddenBy                sql.NullInt64
 	)
 	if err := s.Scan(&a.ID, &startLocal, &startUTC, &date, &week, &a.TypeKey, &sport, &a.NameUntrusted,
 		&a.DistanceM, &a.DurationS, &a.MovingS, &a.ElevGainM, &a.ElevLossM, &avgHR, &maxHR, &manual,
-		&tl, &ate, &nte, &vo2, &tss, &a.FITPath, &fits, &a.FITAttempts, &feel, &rpe); err != nil {
+		&tl, &ate, &nte, &vo2, &tss, &a.FITPath, &fits, &a.FITAttempts,
+		&source, &sourceID, &hasPower, &feel, &rpe, &hiddenBy); err != nil {
 		return a, err
+	}
+	a.Source, a.HasPower = Source(source), hasPower != 0
+	if sourceID.Valid {
+		a.SourceID = sourceID.String
+	}
+	if hiddenBy.Valid {
+		a.HiddenBy = &hiddenBy.Int64
 	}
 	a.Perceived = fitdata.Perceived{FeelPct: iptr(feel), RPE: fptr(rpe)}
 	var err error
@@ -122,9 +144,20 @@ func sptr(n sql.NullString) *string {
 	return &n.String
 }
 
-// liveActivity is the condition every read of activities applies: rows
-// soft-deleted by MarkActivityDeleted are invisible.
-const liveActivity = `deleted_at IS NULL`
+// liveActivityIn is the condition every read of activities applies: rows
+// soft-deleted by MarkActivityDeleted, and the poorer copy of a session both
+// sources recorded (hidden_by set), are invisible. Every column it reads is
+// qualified by table, the activities table's alias in a join; "" leaves them
+// bare.
+func liveActivityIn(table string) string {
+	if table != "" {
+		table += "."
+	}
+	return table + "deleted_at IS NULL AND " + table + "hidden_by IS NULL"
+}
+
+// liveActivity is liveActivityIn for a query on activities alone.
+var liveActivity = liveActivityIn("")
 
 // GetActivity returns a live activity, or ErrNotFound when absent or soft-deleted.
 func (db *DB) GetActivity(ctx context.Context, id int64) (Activity, error) {
@@ -142,11 +175,17 @@ func (db *DB) GetActivity(ctx context.Context, id int64) (Activity, error) {
 // queryActivities selects live activities matching cond (a WHERE condition
 // without the keyword; empty for all), followed by tail.
 func (db *DB) queryActivities(ctx context.Context, cond string, args []any, tail string) ([]Activity, error) {
-	where := `WHERE ` + liveActivity
+	where := liveActivity
 	if cond != "" {
 		where += ` AND (` + cond + `)`
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+activityReadCols+` FROM activities `+where+` `+tail, args...)
+	return db.queryActivitiesWhere(ctx, where, args, tail)
+}
+
+// queryActivitiesWhere selects activities matching where, which carries its
+// own visibility condition.
+func (db *DB) queryActivitiesWhere(ctx context.Context, where string, args []any, tail string) ([]Activity, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+activityReadCols+` FROM activities WHERE `+where+` `+tail, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: query activities: %w", err)
 	}
@@ -227,13 +266,13 @@ func decodeCursor(c string) (string, int64, error) {
 	return date, id, nil
 }
 
-// ActivitiesNeedingFIT returns activities whose FIT is pending, or failed fewer than 3 times.
+// ActivitiesNeedingFIT returns activities whose FIT is pending, or failed fewer
+// than 3 times. Hidden copies are included: their FIT is still downloaded.
 func (db *DB) ActivitiesNeedingFIT(ctx context.Context, limit int) ([]Activity, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
-	return db.queryActivities(ctx,
-		`fit_status='pending' OR (fit_status='failed' AND fit_attempts < 3)`, nil,
+	return db.queryActivitiesWhere(ctx, `deleted_at IS NULL AND (fit_status='pending' OR (fit_status='failed' AND fit_attempts < 3))`, nil,
 		"ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(limit))
 }
 
@@ -252,12 +291,12 @@ func (db *DB) SetFIT(ctx context.Context, id int64, path string, status FITStatu
 	return nil
 }
 
-// ActivityIDsInRange returns the IDs of live activities dated in [from, to],
-// oldest first (id ascending within a day).
-func (db *DB) ActivityIDsInRange(ctx context.Context, from, to civil.Date) ([]int64, error) {
+// ActivityIDsInRange returns the IDs of src's live activities dated in
+// [from, to], oldest first (id ascending within a day).
+func (db *DB) ActivityIDsInRange(ctx context.Context, src Source, from, to civil.Date) ([]int64, error) {
 	rows, err := db.sql.QueryContext(ctx,
-		`SELECT id FROM activities WHERE date >= ? AND date <= ? AND `+liveActivity+` ORDER BY date, id`,
-		from.String(), to.String())
+		`SELECT id FROM activities WHERE source=? AND date >= ? AND date <= ? AND `+liveActivity+` ORDER BY date, id`,
+		string(src), from.String(), to.String())
 	if err != nil {
 		return nil, fmt.Errorf("store: activity ids: %w", err)
 	}
@@ -271,6 +310,41 @@ func (db *DB) ActivityIDsInRange(ctx context.Context, from, to civil.Date) ([]in
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// ActivitiesForDuplicates returns the activities dated in [from, to] that are
+// not soft-deleted, hidden ones included, ordered by start_utc, id.
+func (db *DB) ActivitiesForDuplicates(ctx context.Context, from, to civil.Date) ([]Activity, error) {
+	return db.queryActivitiesWhere(ctx, `deleted_at IS NULL AND date >= ? AND date <= ?`,
+		[]any{from.String(), to.String()}, "ORDER BY start_utc, id")
+}
+
+// ActivityNotDeleted reports whether activity id is stored and not
+// soft-deleted, hidden or not.
+func (db *DB) ActivityNotDeleted(ctx context.Context, id int64) (bool, error) {
+	var n int
+	err := db.sql.QueryRowContext(ctx, `SELECT count(*) FROM activities WHERE id=? AND deleted_at IS NULL`, id).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("store: activity not deleted: %w", err)
+	}
+	return n > 0, nil
+}
+
+// SetHiddenBy hides the activity behind the richer copy by, or shows it again
+// when by is nil. It returns ErrNotFound when the row is absent.
+func (db *DB) SetHiddenBy(ctx context.Context, id int64, by *int64) error {
+	var v any
+	if by != nil {
+		v = *by
+	}
+	res, err := db.sql.ExecContext(ctx, `UPDATE activities SET hidden_by=? WHERE id=?`, v, id)
+	if err != nil {
+		return fmt.Errorf("store: set hidden by: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // MarkActivityDeleted soft-deletes a live activity at at: every read then

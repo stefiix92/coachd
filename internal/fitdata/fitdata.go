@@ -28,6 +28,7 @@ type Lap struct {
 	StartOffsetS, DurationS, DistanceKm float64
 	AvgHRBpm, MaxHRBpm                  *int
 	AvgPaceSPerKm, ElevGainM            *float64
+	AvgPowerW                           *int
 }
 
 type Point struct {
@@ -35,6 +36,7 @@ type Point struct {
 	DistanceKm            *float64
 	HRBpm                 *int
 	PaceSPerKm, AltitudeM *float64
+	PowerW                *int
 }
 
 // Activity is what Decode reads from an activity FIT file.
@@ -99,14 +101,14 @@ func DecodeWorkout(r io.Reader) ([]WorkoutStep, error) {
 	return c.steps, nil
 }
 
-// decode reads the first FIT file in r. checkIntegrity replaces the
+// decode reads the first FIT file in r. CheckIntegrity replaces the
 // decoder's checksum, which rejects some valid files.
 func (c *collector) decode(r io.Reader) error {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("fitdata: read: %w", err)
 	}
-	if err := checkIntegrity(b); err != nil {
+	if err := CheckIntegrity(b); err != nil {
 		return err
 	}
 	d := decoder.New(bytes.NewReader(b), decoder.WithMesgListener(c), decoder.WithBroadcastOnly(), decoder.WithIgnoreChecksum())
@@ -138,7 +140,6 @@ type pendingLap struct {
 	start     time.Time
 	elapsedS  float64 // total elapsed time, pauses included; NaN when absent
 	stepIndex uint16  // wkt_step_index; 0xFFFF when absent
-	avgPowerW uint16  // 0xFFFF when absent
 }
 
 func (c *collector) OnMesg(m proto.Message) {
@@ -186,6 +187,9 @@ func (c *collector) record(m *proto.Message) {
 		p.HRBpm = ptr(int(hr))
 	}
 	p.PaceSPerKm = pace(scaled(value(m, fieldnum.RecordEnhancedSpeed).Uint32(), 1000, 0))
+	if w := value(m, fieldnum.RecordPower).Uint16(); w != 0xFFFF {
+		p.PowerW = ptr(int(w))
+	}
 	if v := scaled(value(m, fieldnum.RecordEnhancedAltitude).Uint32(), 5, 500); valid(v) {
 		p.AltitudeM = ptr(v)
 	}
@@ -214,7 +218,9 @@ func (c *collector) lap(m *proto.Message) {
 	}
 	l.elapsedS = scaled(value(m, fieldnum.LapTotalElapsedTime).Uint32(), 1000, 0)
 	l.stepIndex = value(m, fieldnum.LapWktStepIndex).Uint16()
-	l.avgPowerW = value(m, fieldnum.LapAvgPower).Uint16()
+	if w := value(m, fieldnum.LapAvgPower).Uint16(); w != 0xFFFF {
+		l.AvgPowerW = ptr(int(w))
+	}
 	c.laps = append(c.laps, l)
 }
 

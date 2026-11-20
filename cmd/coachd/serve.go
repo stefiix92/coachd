@@ -31,6 +31,7 @@ import (
 	"github.com/stefiix92/coachd/internal/garmin"
 	"github.com/stefiix92/coachd/internal/garminkey"
 	"github.com/stefiix92/coachd/internal/ingest"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/mcpserver"
 	"github.com/stefiix92/coachd/internal/notify"
 	"github.com/stefiix92/coachd/internal/oauth"
@@ -87,7 +88,7 @@ func serveMain() int {
 		return 1
 	}
 	code := 0
-	if err := runServe(ctx, cfg, g, keys, tel, nil); err != nil {
+	if err := runServe(ctx, cfg, g, intervalsSource(cfg, intervals.DefaultBaseURL), keys, tel, nil); err != nil {
 		tel.Logger.Error("serve failed", "component", "serve", "error_class", fmt.Sprintf("%T", err))
 		fmt.Fprintln(os.Stderr, "coachd serve:", err)
 		code = 1
@@ -116,6 +117,15 @@ func garminSource(cfg *config.Config, tel *telemetry.Telemetry) (*garminkey.Hold
 	return keys, garmin.New(garmin.DefaultBaseURL, keys.Value(), nil, tel.Metrics), nil
 }
 
+// intervalsSource returns the intervals.icu client at baseURL that ingest
+// reads, or nil (the source is off) when no key is configured.
+func intervalsSource(cfg *config.Config, baseURL string) ingest.Intervals {
+	if cfg.IntervalsAPIKey == "" {
+		return nil // a nil *intervals.Client in the interface would not be nil
+	}
+	return intervals.New(baseURL, cfg.IntervalsAPIKey, "coachd/"+version, nil)
+}
+
 // validateServeConfig checks the settings only serve needs. Demo mode needs
 // no Garmin key and refuses one, so a real deployment's settings never start
 // a demo by mistake.
@@ -139,8 +149,9 @@ func validateServeConfig(cfg *config.Config) error {
 // cancelled (clean shutdown returns nil) or a listener fails. ready, if
 // non-nil, receives the bound addresses once every listener accepts.
 // keys holds the Garmin key g uses; the page renews it when g can exchange
-// a new key (garminkey.Exchanger).
-func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, keys *garminkey.Holder, tel *telemetry.Telemetry, ready func(Addrs)) error {
+// a new key (garminkey.Exchanger). iv is the intervals.icu source, nil when
+// off; demo mode ignores it.
+func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv ingest.Intervals, keys *garminkey.Holder, tel *telemetry.Telemetry, ready func(Addrs)) error {
 	log := tel.Logger.With("component", "serve")
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
@@ -169,6 +180,19 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, keys *ga
 			return err
 		}
 		log.Warn("demo mode: synthetic Garmin data, no Garmin calls")
+		if iv != nil {
+			log.Warn("intervals.icu key ignored in demo mode")
+			iv = nil
+		}
+	}
+	// The intervals.icu data type exists only while the source is on: drop
+	// the state an earlier run with the key left, before ingest and the
+	// gauges read it. Its activities stay; turned on again, the first sync
+	// lists back BackfillDays.
+	if iv == nil {
+		if err := db.DeleteSyncState(ctx, ingest.TypeIntervals); err != nil {
+			return fmt.Errorf("delete intervals.icu sync state: %w", err)
+		}
 	}
 	// Outside builtin mode no OAuth grant may survive (spec §3, M13):
 	// switching to Access and back never revives one.
@@ -197,6 +221,7 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, keys *ga
 	ingestOpts := ingest.Options{
 		TZ: cfg.TZ, DataDir: cfg.DataDir, BackfillDays: cfg.BackfillDays, BackfillDelay: cfg.BackfillDelay,
 		SyncMinInterval: cfg.SyncMinInterval, PollInterval: cfg.PollInterval, Now: time.Now,
+		Intervals: iv,
 	}
 	var webhook *notify.Webhook
 	if cfg.WebhookURL != "" {

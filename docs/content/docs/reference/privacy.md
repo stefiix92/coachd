@@ -10,6 +10,7 @@ coachd keeps your data on your server, in the `coachd-data` volume (`/data` in t
 | What | Where | Kept |
 |---|---|---|
 | Garmin data: activities, sleep, HRV, resting HR, SpO2, weight, Body Battery, stress, and the raw JSON as Garmin sent it | `coachd.db` | indefinitely; an activity deleted in Garmin Connect disappears from coachd, but its raw JSON and FIT file stay |
+| Activities from [intervals.icu](/docs/install/intervals/), with the raw JSON it sent | `coachd.db` | indefinitely; as for Garmin's, an activity deleted there disappears from coachd |
 | Original FIT files, and laps, series and executed steps read from them | `fit/`, `coachd.db` | indefinitely |
 | Totals computed at ingest | `coachd.db` | recomputed as data arrives |
 | The goal (earlier goals archived) and notes | `coachd.db` | until deleted; expired notes are not deleted |
@@ -27,6 +28,7 @@ Logs and metrics stay on the host: VictoriaLogs and VictoriaMetrics keep 30 days
 | To | What | When |
 |---|---|---|
 | Garmin | API requests with your key; Garmin returns your data | every sync, hourly by default |
+| intervals.icu | API requests with your intervals.icu key; it returns your activities and their files | every sync, with [intervals.icu](/docs/install/intervals/) on |
 | Your AI agent and its provider | whatever the agent reads through the [MCP tools](/docs/agents/tools/) | when it calls a tool; claude.ai and ChatGPT call from their own servers |
 | Your watch, through Garmin Connect on your phone | approved workouts with their steps, notes and the agent's reasons, and agent messages | when the app syncs or checks |
 | ntfy | "Workout for Tue 3 Nov ready to review" and a link; in built-in mode, notices about app connections. Never workout or health data. | with `COACHD_NTFY_URL` set |

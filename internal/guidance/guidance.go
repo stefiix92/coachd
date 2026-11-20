@@ -60,8 +60,8 @@ type WarningInputs struct {
 	Plan                           workout.Plan
 	LongestRun30dM, LongestRun30dS float64
 	MaxHR90d                       *int
-	SameDay                        int // count of other workouts on Plan.Date in store.DesiredStatuses
-	LastSyncAt                     *time.Time
+	SameDay                        int        // count of other workouts on Plan.Date in store.DesiredStatuses
+	LastSyncAt                     *time.Time // latest successful sync of Garmin's data types
 	Now                            time.Time
 	WeeksOfHistory                 int
 	// ZwiftUnsupported is why a cycling workout cannot be a Zwift workout
@@ -136,10 +136,10 @@ func Warnings(in WarningInputs) []Warning {
 		ws = append(ws, Warning{"zwift_not_exportable", "not exportable to Zwift: " + in.ZwiftUnsupported})
 	}
 	if in.LastSyncAt == nil {
-		ws = append(ws, Warning{"stale_data", "no successful sync is recorded"})
+		ws = append(ws, Warning{"stale_data", "no successful Garmin sync is recorded"})
 	} else if age := in.Now.Sub(*in.LastSyncAt); age > 24*time.Hour {
 		ws = append(ws, Warning{"stale_data", fmt.Sprintf(
-			"last successful sync was more than 24 h ago (%d h)", int(math.Floor(age.Hours())))})
+			"last successful Garmin sync was more than 24 h ago (%d h)", int(math.Floor(age.Hours())))})
 	}
 	if in.WeeksOfHistory < 6 {
 		ws = append(ws, Warning{"thin_history", fmt.Sprintf(

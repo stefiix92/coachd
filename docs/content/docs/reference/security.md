@@ -8,8 +8,8 @@ coachd handles health data and controls what reaches a runner's watch. To report
 ## Invariants
 
 - **No agent path to the watch.** No MCP tool or agent credential can approve, deliver, withdraw or alter an approved workout. Approval needs your passkey on coachd's page, with a single-use, HMAC-signed nonce bound to the proposal and a hash of its content (for a week: to every proposal in the set, all or nothing). coachd enforces this itself, never relying on the AI app.
-- **The Garmin key stays server-side.** It never reaches agents, logs, telemetry or the page.
-- **Untrusted text stays labelled.** Garmin activity names and descriptions, agent rationale and OAuth client names are shown as untrusted.
+- **The Garmin key stays server-side**, as does the [intervals.icu](/docs/install/intervals/) key. Neither reaches agents, logs, telemetry or the page.
+- **Untrusted text stays labelled.** Garmin activity names and descriptions, [intervals.icu](/docs/install/intervals/) activity names, agent rationale and OAuth client names are shown as untrusted.
 - **One runner per instance.** No multi-user or hosted features.
 
 ## Access

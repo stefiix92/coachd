@@ -23,7 +23,7 @@ const (
 // RequestResult answers an agent's sync request.
 type RequestResult struct {
 	Outcome       string
-	LastSyncAt    *time.Time // latest successful sync of any data type
+	LastSyncAt    *time.Time // latest successful sync of Garmin's data types
 	NextAllowedAt time.Time
 }
 
@@ -102,7 +102,8 @@ func (s *Service) RequestSync(ctx context.Context) RequestResult {
 }
 
 // requestOutcome folds per-type outcomes with precedence
-// garmin_rate_limited > auth_failed > failed > synced.
+// garmin_rate_limited > auth_failed > failed > synced. An intervals.icu 429
+// is failed: it is not Garmin's, and the request did not sync everything.
 func requestOutcome(res SyncResult) string {
 	has := func(o string) bool {
 		for _, v := range res.Outcomes {
@@ -117,7 +118,7 @@ func requestOutcome(res SyncResult) string {
 		return RequestGarminRateLimited
 	case has(OutcomeAuthFailed):
 		return RequestAuthFailed
-	case has(OutcomeError):
+	case has(OutcomeError), has(OutcomeIntervalsRateLimited):
 		return RequestFailed
 	}
 	return RequestSynced
@@ -127,7 +128,9 @@ func (s *Service) requestResult(ctx context.Context, outcome string, next time.T
 	return RequestResult{Outcome: outcome, LastSyncAt: s.lastSyncAt(ctx), NextAllowedAt: next}
 }
 
-// lastSyncAt returns the latest LastSuccessAt across all data types, or nil.
+// lastSyncAt returns the latest LastSuccessAt across Garmin's data types, or
+// nil. TypeIntervals is left out, so a working intervals.icu sync never hides
+// a Garmin outage.
 func (s *Service) lastSyncAt(ctx context.Context) *time.Time {
 	states, err := s.db.ListSyncStates(ctx)
 	if err != nil {
@@ -136,7 +139,7 @@ func (s *Service) lastSyncAt(ctx context.Context) *time.Time {
 	}
 	var last *time.Time
 	for _, st := range states {
-		if st.LastSuccessAt != nil && (last == nil || st.LastSuccessAt.After(*last)) {
+		if st.FromGarmin() && st.LastSuccessAt != nil && (last == nil || st.LastSuccessAt.After(*last)) {
 			last = st.LastSuccessAt
 		}
 	}

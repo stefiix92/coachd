@@ -125,8 +125,8 @@ func run(laps []pendingLap, points []Point, step WorkoutStep) StepRun {
 		if l.MaxHRBpm != nil && (r.MaxHRBpm == nil || *l.MaxHRBpm > *r.MaxHRBpm) {
 			r.MaxHRBpm = ptr(*l.MaxHRBpm)
 		}
-		if l.avgPowerW != 0xFFFF {
-			powSum += float64(l.avgPowerW) * l.DurationS
+		if l.AvgPowerW != nil {
+			powSum += float64(*l.AvgPowerW) * l.DurationS
 			powTime += l.DurationS
 		}
 	}

@@ -21,14 +21,14 @@ groups:
           service: coachd
         annotations:
           summary: "A Garmin data type has not synced successfully for over 3 hours"
-          description: "At least one Garmin data type has had no successful sync for over 3 hours (the query takes the max age across data types; sustained 10 minutes). Check get_status for which type, and the coachd logs for auth_failed or rate limiting."
+          description: "At least one Garmin data type has had no successful sync for over 3 hours (the query takes the max age across Garmin's data types, leaving out intervals_activities; sustained 10 minutes). Check get_status for which type, and the coachd logs for auth_failed or rate limiting."
         data:
           - refId: A
             relativeTimeRange: {from: 600, to: 0}
             datasourceUid: coachd-vm
             model:
               refId: A
-              expr: 'max(coachd_garmin_sync_last_success_age_seconds)'
+              expr: 'max(coachd_garmin_sync_last_success_age_seconds{data_type!="intervals_activities"})'
               instant: true
               range: false
               intervalMs: 1000

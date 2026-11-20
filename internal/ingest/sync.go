@@ -1,5 +1,6 @@
-// Package ingest pulls Garmin data into the store: incremental syncs on a
-// schedule and on agent request, plus a worker downloading original FIT files.
+// Package ingest pulls Garmin data, and activities from intervals.icu when it
+// is configured, into the store: incremental syncs on a schedule and on agent
+// request, plus a worker downloading original FIT files.
 // It never evaluates training; it only maps, stores and summarises numbers.
 package ingest
 
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/garmin"
+	"github.com/stefiix92/coachd/internal/intervals"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/summaries"
 	"github.com/stefiix92/coachd/internal/telemetry"
@@ -40,6 +43,16 @@ type Garmin interface {
 
 var _ Garmin = (*garmin.Client)(nil)
 
+// Intervals is the subset of the intervals.icu client ingest uses; *intervals.Client satisfies it.
+type Intervals interface {
+	ListActivities(ctx context.Context, from, to civil.Date) ([]intervals.Item, error)
+	DownloadFile(ctx context.Context, id string) ([]byte, error)
+	// ActivityExists reports false with a nil error only on a 404.
+	ActivityExists(ctx context.Context, id string) (bool, error)
+}
+
+var _ Intervals = (*intervals.Client)(nil)
+
 // Options configures the Service. PollInterval and SyncMinInterval must be
 // positive and BackfillDelay non-negative (config.Load enforces this).
 type Options struct {
@@ -50,13 +63,14 @@ type Options struct {
 	Now                                          func() time.Time // defaults to time.Now
 	// Events hears about recent activities once their FIT file is handled;
 	// nil hears nothing.
-	Events Events
+	Events    Events
+	Intervals Intervals // nil: the intervals.icu source is off
 }
 
 // Events is told about an activity once its FIT file is stored (with its
 // detail) or confirmed unavailable, when the activity started within
-// recentActivity: a backfill of old activities tells it nothing. It must not
-// block.
+// recentActivity and is not a hidden copy: a backfill of old activities tells
+// it nothing. It must not block.
 type Events interface {
 	ActivityStored(ctx context.Context, a store.Activity)
 }
@@ -68,20 +82,37 @@ const recentActivity = 48 * time.Hour
 // raw_payloads sources for daily types.
 const (
 	TypeActivities = "activities"
-	TypeSleep      = "sleep"
-	TypeHRV        = "hrv"
-	TypeDaily      = "daily"
-	TypeWeight     = "weight"
+	// TypeIntervals is the activities of intervals.icu, synced only when
+	// Options.Intervals is set. It has no backfill and no catch-up: its first
+	// window reaches back BackfillDays.
+	TypeIntervals = store.SyncTypeIntervals
+	TypeSleep     = "sleep"
+	TypeHRV       = "hrv"
+	TypeDaily     = "daily"
+	TypeWeight    = "weight"
 )
 
+// dataTypes are the Garmin data types in sync order; Backfill walks only
+// these. syncTypes adds TypeIntervals.
 var dataTypes = []string{TypeActivities, TypeSleep, TypeHRV, TypeDaily, TypeWeight}
+
+// syncTypes is the sync order: dataTypes, with TypeIntervals after
+// TypeActivities when the intervals.icu source is on.
+func (s *Service) syncTypes() []string {
+	if s.opts.Intervals == nil {
+		return dataTypes
+	}
+	return slices.Insert(slices.Clone(dataTypes), 1, TypeIntervals)
+}
 
 // Per-type sync outcomes, stored as SyncState.LastOutcome.
 const (
 	OutcomeOK          = "ok"
 	OutcomeRateLimited = "garmin_rate_limited"
-	OutcomeAuthFailed  = "auth_failed"
-	OutcomeError       = "error"
+	// OutcomeIntervalsRateLimited is TypeIntervals paused after an intervals.icu 429.
+	OutcomeIntervalsRateLimited = "rate_limited"
+	OutcomeAuthFailed           = "auth_failed"
+	OutcomeError                = "error"
 )
 
 const (
@@ -117,10 +148,12 @@ type Service struct {
 	syncMu     sync.Mutex // one sync at a time; TryLock only
 	backfillMu sync.Mutex // one backfill at a time; TryLock only
 
-	pauseMu    sync.Mutex
-	pauseUntil time.Time // no Garmin calls before this instant
+	pauseMu             sync.Mutex
+	pauseUntil          time.Time // no Garmin calls before this instant
+	intervalsPauseUntil time.Time // no intervals.icu calls before this instant
 
 	stateMu sync.Mutex // serialises sync_state read-modify-write
+	dupMu   sync.Mutex // serialises applyDuplicates: Sync and Backfill both run it
 
 	reqMu       sync.Mutex
 	lastRequest time.Time // last RequestSync that ran a sync
@@ -161,7 +194,8 @@ func New(db *store.DB, g Garmin, t *telemetry.Telemetry, o Options) *Service {
 func (s *Service) now() time.Time { return s.opts.Now() }
 
 // Sync fetches every data type for its incremental window and stores it. Types
-// are independent, except that a Garmin 429 skips the remaining types. It
+// are independent, except that a Garmin 429 skips the remaining Garmin types
+// (not TypeIntervals, which pauses only itself on an intervals.icu 429). It
 // returns ErrSyncRunning if a sync is already in progress, or ctx's error if
 // ctx ends before all types ran. Each run is one "ingest.sync" span with an
 // "ingest.sync.type" child per data type. If any type succeeded, summaries are
@@ -177,14 +211,15 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 
 	today := civil.Of(s.now(), s.opts.TZ)
 	res := SyncResult{Outcomes: map[string]string{}, Items: map[string]int{}}
-	rateLimited, anyOK, stored := false, false, 0
-	var all fetched // only its earliest date is used
-	for _, dt := range dataTypes {
+	rateLimited, anyOK, stored := false, false, 0 // rateLimited: Garmin only
+	var all fetched                               // only its earliest date is used
+	dupFrom, dupOK := s.duplicatesWindow(ctx, today)
+	for _, dt := range s.syncTypes() {
 		if err := ctx.Err(); err != nil {
 			failSpan(span, err)
 			return res, err
 		}
-		outcome, f := s.syncType(ctx, dt, today, rateLimited)
+		outcome, f := s.syncType(ctx, dt, today, rateLimited && dt != TypeIntervals)
 		rateLimited = rateLimited || outcome == OutcomeRateLimited
 		anyOK = anyOK || outcome == OutcomeOK
 		res.Outcomes[dt], res.Items[dt] = outcome, f.stored
@@ -192,6 +227,9 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 		all.storedOn(f.earliest)
 	}
 	span.SetAttributes(attribute.String("outcome", worstOutcome(res.Outcomes)), attribute.Int("count", stored))
+	if dupOK && res.Outcomes[TypeActivities] == OutcomeOK && res.Outcomes[TypeIntervals] == OutcomeOK {
+		s.resolveDuplicatesStep(ctx, dupFrom, today) // both ok: anyOK is set, so the recompute below covers it
+	}
 	if anyOK {
 		if err := summaries.Recompute(ctx, s.db, today, recomputeDays(today, all.earliest)); err != nil {
 			s.log.ErrorContext(ctx, "summaries recompute failed", "data_type", "summaries", "outcome", OutcomeError,
@@ -199,6 +237,27 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// duplicatesWindow is the start of the range the duplicate step covers, the
+// earlier of the activities and intervals windows, taken before the sync moves
+// them. ok is false when the intervals source is off or a window is unknown.
+func (s *Service) duplicatesWindow(ctx context.Context, today civil.Date) (from civil.Date, ok bool) {
+	if s.opts.Intervals == nil {
+		return civil.Date{}, false
+	}
+	a, err := s.windowStart(ctx, TypeActivities, today)
+	if err != nil {
+		return civil.Date{}, false
+	}
+	i, err := s.windowStart(ctx, TypeIntervals, today)
+	if err != nil {
+		return civil.Date{}, false
+	}
+	if i.Before(a) {
+		a = i
+	}
+	return a, true
 }
 
 // recomputeDays is how many days the post-sync recompute covers: summaryDays,
@@ -245,8 +304,13 @@ func (s *Service) syncType(ctx context.Context, dt string, today civil.Date, pau
 				f = f.merge(nf)
 			}
 			err = worseErr(cerr, err)
-			if dt == TypeActivities && err == nil && f.complete {
-				s.reconcile(ctx, from, today, f.ids)
+			if err == nil && f.complete {
+				switch dt {
+				case TypeActivities:
+					s.reconcile(ctx, from, today, f.ids)
+				case TypeIntervals:
+					f.storedOn(s.reconcileIntervals(ctx, from, today, f.ids))
+				}
 			}
 		}
 	}
@@ -263,9 +327,10 @@ func (s *Service) syncType(ctx context.Context, dt string, today civil.Date, pau
 // (clamped to today−27) cannot reach: [max(last−3, today−365), today−28] in
 // chunks of at most 28 days, oldest first, each in an "ingest.sync.catchup"
 // span. It stops at the first failed chunk and returns its error; chunks
-// stored before it stay stored. Activities and short outages need nothing.
+// stored before it stay stored. Activities (of either source) and short
+// outages need nothing.
 func (s *Service) catchUp(ctx context.Context, dt string, today civil.Date) (f fetched, chunks int, _ error) {
-	if dt == TypeActivities {
+	if dt == TypeActivities || dt == TypeIntervals {
 		return f, 0, nil
 	}
 	st, err := s.db.GetSyncState(ctx, dt)
@@ -303,7 +368,7 @@ func (s *Service) catchUp(ctx context.Context, dt string, today civil.Date) (f f
 func worseErr(a, b error) error {
 	rank := func(e error) int {
 		switch outcomeOf(e) {
-		case OutcomeRateLimited:
+		case OutcomeRateLimited, OutcomeIntervalsRateLimited:
 			return 3
 		case OutcomeAuthFailed:
 			return 2
@@ -346,10 +411,10 @@ func (f fetched) merge(o fetched) fetched {
 }
 
 // worstOutcome folds per-type outcomes with precedence
-// garmin_rate_limited > auth_failed > error > ok.
+// garmin_rate_limited > rate_limited > auth_failed > error > ok.
 func worstOutcome(outcomes map[string]string) string {
 	worst := OutcomeOK
-	rank := map[string]int{OutcomeOK: 0, OutcomeError: 1, OutcomeAuthFailed: 2, OutcomeRateLimited: 3}
+	rank := map[string]int{OutcomeOK: 0, OutcomeError: 1, OutcomeAuthFailed: 2, OutcomeIntervalsRateLimited: 3, OutcomeRateLimited: 4}
 	for _, o := range outcomes {
 		if rank[o] > rank[worst] {
 			worst = o
@@ -374,12 +439,15 @@ func failSpan(span trace.Span, err error) {
 
 // windowStart returns the first date of dt's incremental window ending today:
 //   - activities: min(today−14, lastSuccess−2), or today−14 with no success;
+//   - intervals activities: as activities, but min(today−14,
+//     today−BackfillDays) with no success (its first window is its backfill);
 //   - daily types: max(today−27, min(today−13, lastSuccess−3)), or today−13.
 //
 // lastSuccess is the local date of the type's LastSuccessAt.
 func (s *Service) windowStart(ctx context.Context, dt string, today civil.Date) (civil.Date, error) {
+	activities := dt == TypeActivities || dt == TypeIntervals
 	minDays, overlap := dailyMinDays, dailyOverlapDays
-	if dt == TypeActivities {
+	if activities {
 		minDays, overlap = activityMinDays, activityOverlapDays
 	}
 	from := today.AddDays(-minDays)
@@ -387,12 +455,17 @@ func (s *Service) windowStart(ctx context.Context, dt string, today civil.Date) 
 	if err != nil {
 		return civil.Date{}, err
 	}
-	if st.LastSuccessAt != nil {
+	switch {
+	case st.LastSuccessAt != nil:
 		if gap := civil.Of(*st.LastSuccessAt, s.opts.TZ).AddDays(-overlap); gap.Before(from) {
 			from = gap
 		}
+	case dt == TypeIntervals:
+		if first := today.AddDays(-s.opts.BackfillDays); first.Before(from) {
+			from = first
+		}
 	}
-	if dt != TypeActivities {
+	if !activities {
 		if floor := today.AddDays(-dailyMaxDays); from.Before(floor) {
 			from = floor
 		}
@@ -461,10 +534,14 @@ type fetched struct {
 	stored, skipped int
 	empty           int        // dateless items with no data: expected "no data" days
 	freshest        *time.Time // latest activity start, or latest item date at local midnight
-	earliest        civil.Date // oldest date stored (activity or item date); zero when none
+	// earliest is the oldest date stored (activity or item date), or soft-deleted
+	// by the intervals.icu deletion probe; zero when none.
+	earliest civil.Date
 	// Activities only: complete is true when paging ended on an empty page or
 	// on a page adding no new ID (not on an error or the page guard); ids holds
-	// every activity ID Garmin listed.
+	// every activity ID Garmin listed. For TypeIntervals, complete is true once
+	// every list call of the window succeeded, and ids holds the coachd ID of
+	// every entry of the form i<digits> they returned, imported or not.
 	complete bool
 	ids      map[int64]bool
 }
@@ -491,6 +568,8 @@ func (s *Service) fetchRange(ctx context.Context, dt string, from, to civil.Date
 	switch dt {
 	case TypeActivities:
 		return s.fetchActivities(ctx, from, to)
+	case TypeIntervals:
+		return s.fetchIntervals(ctx, from, to)
 	case TypeSleep:
 		return fetchDaily(ctx, s, dt, from, to, s.g.SleepRange, MapSleep, sleepEmpty)
 	case TypeHRV:
@@ -639,12 +718,15 @@ func (s *Service) notePause(ctx context.Context, err error) bool {
 
 func outcomeOf(err error) string {
 	var rl *garmin.RateLimitedError
+	var irl *intervals.RateLimitedError
 	switch {
 	case err == nil:
 		return OutcomeOK
 	case errors.Is(err, errPaused), errors.As(err, &rl):
 		return OutcomeRateLimited
-	case errors.Is(err, garmin.ErrUnauthorized):
+	case errors.Is(err, errIntervalsPaused), errors.As(err, &irl):
+		return OutcomeIntervalsRateLimited
+	case errors.Is(err, garmin.ErrUnauthorized), errors.Is(err, intervals.ErrUnauthorized):
 		return OutcomeAuthFailed
 	}
 	return OutcomeError
@@ -653,20 +735,24 @@ func outcomeOf(err error) string {
 // errorClass is a low-cardinality error label for logs.
 func errorClass(err error) string {
 	var rl *garmin.RateLimitedError
+	var irl *intervals.RateLimitedError
 	var se *garmin.StatusError
+	var ise *intervals.StatusError
 	switch {
 	case errors.Is(err, errProbeUnreliable):
 		return "probe_unreliable"
-	case errors.Is(err, errPaused), errors.As(err, &rl):
+	case errors.Is(err, errPaused), errors.As(err, &rl), errors.Is(err, errIntervalsPaused), errors.As(err, &irl):
 		return "rate_limited"
-	case errors.Is(err, garmin.ErrUnauthorized):
+	case errors.Is(err, garmin.ErrUnauthorized), errors.Is(err, intervals.ErrUnauthorized):
 		return "unauthorized"
-	case errors.Is(err, garmin.ErrNotFound):
+	case errors.Is(err, garmin.ErrNotFound), errors.Is(err, intervals.ErrNotFound):
 		return "not_found"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "context"
 	case errors.As(err, &se):
 		return "garmin_status"
+	case errors.As(err, &ise):
+		return "intervals_status"
 	}
 	return "other"
 }

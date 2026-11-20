@@ -380,6 +380,26 @@ func TestAuditRowsPerTransition(t *testing.T) {
 	}
 }
 
+// stale_data reads Garmin's data types only: a working intervals.icu sync
+// does not hide a Garmin outage.
+func TestStaleDataIgnoresIntervals(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	for typ, ago := range map[string]time.Duration{"activities": 30 * time.Hour, "intervals_activities": time.Hour} {
+		at := f.now.Add(-ago)
+		if err := f.db.PutSyncState(ctx, store.SyncState{DataType: typ, LastSuccessAt: &at, LastOutcome: "ok"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := mustPropose(t, f, "2026-10-25", nil)
+	for _, w := range r.Warnings {
+		if w.Code == "stale_data" {
+			return
+		}
+	}
+	t.Fatalf("warnings = %+v, want stale_data (Garmin last synced 30 h ago)", r.Warnings)
+}
+
 func TestWarningInputsExact(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

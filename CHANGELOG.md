@@ -8,7 +8,15 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ### Added
 
+- **Activities from intervals.icu** (`docs/design/intervals-activities.md`): with an intervals.icu API key in `COACHD_INTERVALS_API_KEY_FILE`, coachd also pulls the activities that reach intervals.icu but never Garmin Connect, such as MyWhoosh rides, with their original FIT files, on every sync ([intervals.icu](https://stefiix92.github.io/coachd/docs/install/intervals/)). The first sync reaches back `COACHD_BACKFILL_DAYS`, listing 90 days per call. Strava-sourced and Garmin-sourced activities are skipped. When both sources hold one session, the richer copy is shown (power, then heart rate, then Garmin's) and the other stays stored, hidden. An intervals.icu failure never stops Garmin's sync, or the other way round, and an intervals.icu failure alone never makes `request_sync` answer `garmin_rate_limited` or `synced`. Off without the key; demo mode ignores it.
+- **`source` on activities:** `list_activities` and `get_activity` say where an activity came from, `garmin` or `intervals_icu`. An intervals.icu activity has a negative `id` and a null `garmin_derived`; `get_status` lists its data type, `intervals_activities`.
+- **Power in laps and series:** `get_activity` shows `avg_power_w` per lap and `power_w` per series point, from the FIT file, for every source; null when the file has none. A new migration clears the cached detail, which rebuilds from the stored FIT files.
 - **README walkthrough:** an animated GIF of the whole loop (data in, the agent proposes, you approve with a passkey, the watch runs it, the results go back). Mocked with a made-up runner; its source and render script are in `docs/demo/`.
+
+### Changed
+
+- `request_sync`'s `last_sync_at` and a proposal's `stale_data` warning count Garmin's data types only, and the warning now says "Garmin sync": a working intervals.icu sync never hides a Garmin outage.
+- The `GarminSyncFailing` alert rule leaves out `intervals_activities`, so an intervals.icu outage never fires an alert named for Garmin. The local Grafana takes it at its next start; on Grafana Cloud, change that rule's query to the one in `deploy/grafana/alerts/coachd-alerts.yaml`.
 
 ## [0.5.1] - 2026-10-27
 

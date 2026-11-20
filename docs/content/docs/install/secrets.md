@@ -31,6 +31,7 @@ It reads the value at a hidden prompt (so it stays out of shell history) and han
 | `garmin_api_key` | `65532:65532` | always | [Garmin key](../garmin-key/) |
 | `ntfy_token` | `65532:65532` | always; may be empty | [ntfy](../notifications/#ntfy) |
 | `tailscale_authkey` | `0:0` | always | [Tailscale](../tailscale/) |
+| `intervals_api_key` | `65532:65532` | with intervals.icu | [intervals.icu](../intervals/) |
 | `grafana_cloud_otlp_token`, `grafana_cloud_pyroscope_token` | `473:473` | with Grafana Cloud | [Grafana Cloud](/docs/operations/grafana-cloud/) |
 | `grafana_cloud_pdc_token` | `30000:30000` | with Grafana Cloud | [Grafana Cloud](/docs/operations/grafana-cloud/) |
 | `grafana_admin_password` | `472:472` | with local monitoring | [Local Grafana](/docs/operations/monitoring/#local-grafana) |

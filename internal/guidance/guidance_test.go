@@ -297,7 +297,7 @@ func TestStaleFlooredAndZeroMaxHR(t *testing.T) {
 	_, now := fresh()
 	old := now.Add(-24*time.Hour - 40*time.Minute)
 	in := WarningInputs{Plan: workout.Plan{Sport: store.SportCycling}, LastSyncAt: &old, Now: now, WeeksOfHistory: 10}
-	if m := Warnings(in)[0].Message; m != "last successful sync was more than 24 h ago (24 h)" {
+	if m := Warnings(in)[0].Message; m != "last successful Garmin sync was more than 24 h ago (24 h)" {
 		t.Fatal(m)
 	}
 	hi, zero := 150, 0

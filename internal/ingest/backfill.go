@@ -108,7 +108,10 @@ func (s *Service) backfillType(ctx context.Context, dt string, today, limit civi
 }
 
 // backfillStep fetches, stores and checkpoints the chunk [start, end] in an
-// "ingest.backfill.chunk" span. last marks the type's history done.
+// "ingest.backfill.chunk" span. last marks the type's history done. With the
+// intervals.icu source on, an activities chunk then has its duplicate pairs
+// resolved, before the checkpoint; Backfill's closing recompute covers the
+// dates whose marks changed.
 func (s *Service) backfillStep(ctx context.Context, dt string, start, end civil.Date, last bool) error {
 	ctx, span := s.tracer.Start(ctx, "ingest.backfill.chunk", trace.WithAttributes(
 		attribute.String("data_type", dt), attribute.String("calendar_date", start.String())))
@@ -119,6 +122,9 @@ func (s *Service) backfillStep(ctx context.Context, dt string, start, end civil.
 		s.log.InfoContext(ctx, "backfill chunk stored", "data_type", dt, "calendar_date", start.String(), "count", f.stored)
 		if dt == TypeActivities && f.stored > 0 {
 			s.signalFIT()
+		}
+		if dt == TypeActivities && s.opts.Intervals != nil {
+			s.resolveDuplicatesStep(ctx, start, end)
 		}
 		err = s.saveBackfill(ctx, dt, start.String(), last)
 	} else {

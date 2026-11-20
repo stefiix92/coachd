@@ -100,7 +100,7 @@ func (db *DB) GetActivityDetail(ctx context.Context, id int64) (ActivityDetail, 
 	var laps, series string
 	var wkt sql.NullString
 	err := db.sql.QueryRowContext(ctx, `SELECT d.laps_json, d.series_json, d.workout_json FROM activity_detail d
-		JOIN activities a ON a.id = d.activity_id WHERE d.activity_id=? AND a.`+liveActivity, id).Scan(&laps, &series, &wkt)
+		JOIN activities a ON a.id = d.activity_id WHERE d.activity_id=? AND `+liveActivityIn("a"), id).Scan(&laps, &series, &wkt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ActivityDetail{}, ErrNotFound
 	}
@@ -134,7 +134,7 @@ type ActivityWorkout struct {
 func (db *DB) ActivityWorkouts(ctx context.Context, from, to civil.Date) ([]ActivityWorkout, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT a.id, a.date, d.workout_fp FROM activity_detail d
 		JOIN activities a ON a.id = d.activity_id
-		WHERE d.workout_fp IS NOT NULL AND a.date >= ? AND a.date <= ? AND a.`+liveActivity+`
+		WHERE d.workout_fp IS NOT NULL AND a.date >= ? AND a.date <= ? AND `+liveActivityIn("a")+`
 		ORDER BY a.date, a.id`, from.String(), to.String())
 	if err != nil {
 		return nil, fmt.Errorf("store: activity workouts: %w", err)

@@ -42,9 +42,9 @@ func (s *svc) register(srv *mcp.Server) {
 	read := func() *mcp.ToolAnnotations { return &mcp.ToolAnnotations{ReadOnlyHint: true} }
 	notDestructive := false
 
-	addTool(s, srv, &mcp.Tool{Name: "get_status", Annotations: read(), Description: "Sync freshness per Garmin data " +
-		"type, how much history is stored, days until the Garmin API key expires, and pending workout proposals. " +
-		"pending_proposals lists up to 20 workout proposals awaiting the runner's approval." + statusSuffix},
+	addTool(s, srv, &mcp.Tool{Name: "get_status", Annotations: read(), Description: "Sync freshness per data " +
+		"type (Garmin's, and intervals.icu's when configured), how much history is stored, days until the Garmin " +
+		"API key expires, and pending workout proposals. pending_proposals lists up to 20 workout proposals awaiting the runner's approval." + statusSuffix},
 		auth.ScopeRead, s.getStatus)
 
 	addTool(s, srv, &mcp.Tool{Name: "get_daily_health", Annotations: read(), Description: "Per-day sleep, HRV, " +
@@ -61,7 +61,7 @@ func (s *svc) register(srv *mcp.Server) {
 
 	addTool(s, srv, &mcp.Tool{Name: "get_activity", Annotations: read(), Description: "One activity by ID. " +
 		"detail summary (default) returns the summary; laps adds per-lap splits; series adds laps plus a heart " +
-		"rate, pace, distance and altitude series reduced to at most 600 points. laps and series are empty when " +
+		"rate, power, pace, distance and altitude series reduced to at most 600 points. laps and series are empty when " +
 		"no FIT file is stored (has_fit false). perceived is the runner's own rating entered on the watch after " +
 		"the activity, read from the FIT file. For an activity recorded from a structured workout on the watch, " +
 		"laps and series also add workout: the steps the watch followed; the steps as executed, with seconds " +
@@ -75,8 +75,8 @@ func (s *svc) register(srv *mcp.Server) {
 		"rolling HRV, resting heart rate, sleep and longest-run figures." + descSuffix},
 		auth.ScopeRead, s.getSummaries)
 
-	addTool(s, srv, &mcp.Tool{Name: "request_sync", Description: "Ask coachd to sync from Garmin now. " +
-		"Rate-limited: returns the outcome, the last successful sync time and when the next request is allowed." + descSuffix,
+	addTool(s, srv, &mcp.Tool{Name: "request_sync", Description: "Ask coachd to sync from Garmin, and from " +
+		"intervals.icu when configured, now. Rate-limited: returns the outcome, the last successful Garmin sync time and when the next request is allowed." + descSuffix,
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &notDestructive, IdempotentHint: true}},
 		auth.ScopeWrite, s.requestSync)
 
@@ -112,7 +112,7 @@ type listActivitiesInput struct {
 }
 
 type getActivityInput struct {
-	ID     int64  `json:"id" jsonschema:"Garmin activity ID, as returned by list_activities"`
+	ID     int64  `json:"id" jsonschema:"coachd activity ID, as returned by list_activities; negative for an activity from intervals.icu"`
 	Detail string `json:"detail,omitempty" jsonschema:"summary (default), laps or series"`
 }
 
@@ -121,7 +121,7 @@ type getActivityInput struct {
 type statusOut struct {
 	Now       string       `json:"now" jsonschema:"Current time, RFC 3339 in the runner's timezone"`
 	Timezone  string       `json:"timezone" jsonschema:"The runner's IANA timezone"`
-	Sync      []syncOut    `json:"sync" jsonschema:"Sync state per Garmin data type"`
+	Sync      []syncOut    `json:"sync" jsonschema:"Sync state per data type"`
 	Coverage  coverageOut  `json:"coverage" jsonschema:"How much history is stored"`
 	GarminKey garminKeyOut `json:"garmin_key" jsonschema:"Validity of the Garmin Personal API key"`
 
@@ -135,7 +135,7 @@ type pendingProposalOut struct {
 }
 
 type syncOut struct {
-	DataType       string   `json:"data_type" jsonschema:"Garmin data type: activities, sleep, hrv, daily or weight"`
+	DataType       string   `json:"data_type" jsonschema:"Data type: activities, sleep, hrv, daily or weight from Garmin; intervals_activities from intervals.icu when configured"`
 	LastSuccessAt  *string  `json:"last_success_at" jsonschema:"Last successful sync, RFC 3339; null if never"`
 	LastOutcome    string   `json:"last_outcome" jsonschema:"Outcome of the last sync attempt"`
 	FreshestDataAt *string  `json:"freshest_data_at" jsonschema:"Time of the newest stored data, RFC 3339; null if none"`
@@ -188,7 +188,8 @@ type dailyGarminOut struct {
 }
 
 type activityOut struct {
-	ID             int64             `json:"id" jsonschema:"Garmin activity ID"`
+	ID             int64             `json:"id" jsonschema:"coachd activity ID; negative for an activity from intervals.icu"`
+	Source         string            `json:"source" jsonschema:"Where the activity came from: garmin or intervals_icu"`
 	Date           string            `json:"date" jsonschema:"Local calendar date of the start, YYYY-MM-DD"`
 	StartLocal     string            `json:"start_local" jsonschema:"Start instant, RFC 3339 in the runner's timezone; its date can differ from date for activities recorded in another timezone"`
 	Sport          string            `json:"sport" jsonschema:"running, trail_running, walking, hiking, cycling, strength or other"`
@@ -202,7 +203,7 @@ type activityOut struct {
 	MaxHRBpm       *int              `json:"max_hr_bpm" jsonschema:"Maximum heart rate in beats per minute"`
 	HasFIT         bool              `json:"has_fit" jsonschema:"Whether the original FIT file is stored (needed for laps and series)"`
 	Perceived      perceivedOut      `json:"perceived" jsonschema:"The runner's own rating after the activity, entered on the watch; read from the FIT file"`
-	GarminDerived  activityGarminOut `json:"garmin_derived" jsonschema:"Garmin's proprietary estimates for the activity"`
+	GarminDerived  activityGarminOut `json:"garmin_derived" jsonschema:"Garmin's proprietary estimates for the activity; all null for an activity from intervals.icu"`
 }
 
 type perceivedOut struct {
@@ -239,6 +240,7 @@ type lapOut struct {
 	MaxHRBpm       *int     `json:"max_hr_bpm" jsonschema:"Maximum heart rate in beats per minute"`
 	AvgPaceSPerKm  *float64 `json:"avg_pace_s_per_km" jsonschema:"Average pace in seconds per kilometre"`
 	ElevationGainM *float64 `json:"elevation_gain_m" jsonschema:"Elevation gain in metres"`
+	AvgPowerW      *int     `json:"avg_power_w" jsonschema:"Average power in watts; null when the file has none"`
 }
 
 type pointOut struct {
@@ -247,6 +249,7 @@ type pointOut struct {
 	HRBpm      *int     `json:"hr_bpm" jsonschema:"Heart rate in beats per minute"`
 	PaceSPerKm *float64 `json:"pace_s_per_km" jsonschema:"Pace in seconds per kilometre; null when nearly stationary"`
 	AltitudeM  *float64 `json:"altitude_m" jsonschema:"Altitude in metres"`
+	PowerW     *int     `json:"power_w" jsonschema:"Power in watts; null when the file has none"`
 }
 
 type summariesOut struct {
@@ -286,7 +289,7 @@ type dayMetricsOut struct {
 
 type requestSyncOut struct {
 	Outcome       string  `json:"outcome" jsonschema:"synced, rate_limited, already_running, garmin_rate_limited, auth_failed or failed"`
-	LastSyncAt    *string `json:"last_sync_at" jsonschema:"Latest successful sync of any data type, RFC 3339; null if never"`
+	LastSyncAt    *string `json:"last_sync_at" jsonschema:"Latest successful sync of any of Garmin's data types, RFC 3339; null if never"`
 	NextAllowedAt string  `json:"next_allowed_at" jsonschema:"Earliest time the next request_sync is accepted, RFC 3339"`
 }
 
@@ -446,12 +449,12 @@ func (s *svc) getActivity(ctx context.Context, in getActivityInput) (getActivity
 	for _, l := range d.Laps {
 		out.Laps = append(out.Laps, lapOut{Index: l.Index, StartOffsetS: whole(l.StartOffsetS), DurationS: whole(l.DurationS),
 			DistanceKm: round(l.DistanceKm, 2), AvgHRBpm: l.AvgHRBpm, MaxHRBpm: l.MaxHRBpm,
-			AvgPaceSPerKm: roundPtr(l.AvgPaceSPerKm, 2), ElevationGainM: roundPtr(l.ElevGainM, 1)})
+			AvgPaceSPerKm: roundPtr(l.AvgPaceSPerKm, 2), ElevationGainM: roundPtr(l.ElevGainM, 1), AvgPowerW: l.AvgPowerW})
 	}
 	if detail == "series" {
 		for _, p := range d.Series {
 			out.Series = append(out.Series, pointOut{OffsetS: whole(p.OffsetS), DistanceKm: roundPtr(p.DistanceKm, 2),
-				HRBpm: p.HRBpm, PaceSPerKm: roundPtr(p.PaceSPerKm, 2), AltitudeM: roundPtr(p.AltitudeM, 1)})
+				HRBpm: p.HRBpm, PaceSPerKm: roundPtr(p.PaceSPerKm, 2), AltitudeM: roundPtr(p.AltitudeM, 1), PowerW: p.PowerW})
 		}
 	}
 	if d.Workout != nil {
@@ -547,7 +550,7 @@ func (s *svc) requestSync(ctx context.Context, _ noInput) (requestSyncOut, error
 func (s *svc) activity(a store.Activity) activityOut {
 	g := a.Garmin
 	return activityOut{
-		ID: a.ID, Date: a.Date.String(), StartLocal: s.ts(a.StartUTC), Sport: string(a.Sport),
+		ID: a.ID, Source: string(a.Source), Date: a.Date.String(), StartLocal: s.ts(a.StartUTC), Sport: string(a.Sport),
 		NameUntrusted: a.NameUntrusted, DistanceKm: round(a.DistanceM/1000, 2), DurationS: whole(a.DurationS),
 		MovingTimeS: whole(a.MovingS), ElevationGainM: round(a.ElevGainM, 1), ElevationLossM: round(a.ElevLossM, 1),
 		AvgHRBpm: wholePtr(a.AvgHR), MaxHRBpm: wholePtr(a.MaxHR), HasFIT: a.FITStatus == store.FITStored,

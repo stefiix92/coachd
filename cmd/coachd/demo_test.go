@@ -170,7 +170,7 @@ func TestServeDemoRefusesRealData(t *testing.T) {
 	cfg := testCfg(t)
 	makeToken(t, cfg, "read") // a real coachd.db, created outside demo mode
 	cfg.Demo, cfg.GarminAPIKey, cfg.GarminKeyExpires = true, "", civil.Date{}
-	err := runServe(context.Background(), cfg, demo.New(cfg.TZ, time.Now), garminkey.NoKey(demo.KeyExpires), testTel(t), nil)
+	err := runServe(context.Background(), cfg, demo.New(cfg.TZ, time.Now), nil, garminkey.NoKey(demo.KeyExpires), testTel(t), nil)
 	if err == nil || !strings.Contains(err.Error(), "COACHD_DEMO=true") || !strings.Contains(err.Error(), "not a demo one") {
 		t.Fatalf("err = %v", err)
 	}
@@ -198,7 +198,7 @@ func TestServeRefusesDemoData(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	err = runServe(context.Background(), cfg, emptyGarmin{}, testKeys(t, cfg), testTel(t), nil)
+	err = runServe(context.Background(), cfg, emptyGarmin{}, nil, testKeys(t, cfg), testTel(t), nil)
 	if err == nil || !strings.Contains(err.Error(), "holds demo data") || !strings.Contains(err.Error(), "COACHD_DEMO=true") {
 		t.Fatalf("err = %v", err)
 	}

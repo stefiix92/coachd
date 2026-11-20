@@ -60,6 +60,7 @@ Pick one:
 
 {{< cards >}}
   {{< card link="notifications" title="ntfy and the post-run webhook" icon="bell" subtitle="A phone notice when a workout is ready; an event for your automation when a run arrives." >}}
+  {{< card link="intervals" title="intervals.icu" icon="refresh" subtitle="Activities that never reach Garmin, such as MyWhoosh rides." >}}
   {{< card link="../watch" title="Watch app" icon="clock" subtitle="Approved workouts copied onto your watch." >}}
   {{< card link="../operations/monitoring" title="Monitoring" icon="chart-square-bar" subtitle="A local Grafana with dashboards and alerts, or Grafana Cloud." >}}
   {{< card link="../operations/backups" title="Off-site backups" icon="cloud-upload" subtitle="restic to S3, B2 or SFTP." >}}

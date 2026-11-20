@@ -38,8 +38,8 @@ func NormalizeSport(typeKey string) store.Sport {
 }
 
 // MapActivity converts an activity search entry. Units stay metres and
-// seconds. Date is the wall-clock date of startTimeLocal in tz. A missing or
-// invalid start time is an error.
+// seconds. Date is the wall-clock date of startTimeLocal in tz. HasPower is
+// avgPower above zero. A missing or invalid start time is an error.
 func MapActivity(dto garmin.ActivityDTO, tz *time.Location) (store.Activity, error) {
 	if dto.ActivityID <= 0 {
 		return store.Activity{}, errors.New("ingest: activity: missing id")
@@ -86,6 +86,8 @@ func MapActivity(dto garmin.ActivityDTO, tz *time.Location) (store.Activity, err
 			TSS:          dto.TrainingStressScore,
 		},
 		FITStatus: fit,
+		Source:    store.SourceGarmin,
+		HasPower:  deref(dto.AvgPower) > 0,
 	}, nil
 }
 
