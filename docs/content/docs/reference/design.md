@@ -18,4 +18,5 @@ coachd's behaviour is decided in design records, kept in the repository under [`
 | [Post-run webhook](https://github.com/stefiix92/coachd/blob/main/docs/design/post-run-webhook.md) | The event coachd sends when a run arrives. |
 | [Perceived effort](https://github.com/stefiix92/coachd/blob/main/docs/design/perceived-effort.md) | The runner's post-activity rating. |
 | [Zwift workouts](https://github.com/stefiix92/coachd/blob/main/docs/design/zwift-workouts.md) | Power targets in % of FTP and `.zwo` downloads. |
+| [Check-in and profile](https://github.com/stefiix92/coachd/blob/main/docs/design/checkin-profile.md) | The runner's daily check-in stored by an agent, and thresholds and zones read from intervals.icu. |
 | [Trainer workouts](https://github.com/stefiix92/coachd/blob/main/docs/design/trainer-workouts.md) | Watt targets and indoor cycling workouts. |

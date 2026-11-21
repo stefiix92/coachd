@@ -9,10 +9,10 @@ Every tool coachd offers an agent. Write tools need the write scope and change o
 
 | Tool | Kind | What it returns |
 |---|---|---|
-| `get_status` | read | Sync freshness per data type (Garmin's, and `intervals_activities` with [intervals.icu](/docs/install/intervals/)), how much history is stored, days until the Garmin key expires, and the workout proposals waiting for your approval. |
+| `get_status` | read | Sync freshness per data type (Garmin's, and `intervals_activities` and `intervals_profile` with [intervals.icu](/docs/install/intervals/)), how much history is stored, days until the Garmin key expires, and the workout proposals waiting for your approval. |
 | `list_activities` | read | Activity summaries for a date range (at most 366 days), newest first, optionally one sport, a page at a time. `source` says where each came from: `garmin` or `intervals_icu`; an intervals.icu activity has a negative `id` and a null `garmin_derived`. `avg_power_w` is the average power when the source has it. `intervals_derived` holds intervals.icu's own training load, normalized power and intensity factor, null for a Garmin activity and never on Garmin's scales. |
 | `get_activity` | read | One activity. Detail `summary` (default); `laps` adds per-lap splits (with `avg_power_w`); `series` adds heart rate, power (`power_w`), pace, distance and altitude, reduced to at most 600 points; power is null when the file has none. For a structured workout, `laps` and `series` add the planned and executed steps and the delivered proposal it carried out. `perceived` is your own post-activity rating. |
-| `get_daily_health` | read | Per-day sleep, HRV, resting heart rate, SpO2 and weight, at most 92 days. Sleep score, HRV status and baseline, Body Battery and stress are under `garmin_derived`. |
+| `get_daily_health` | read | Per-day sleep, HRV, resting heart rate, SpO2 and weight, at most 92 days. Sleep score, HRV status and baseline, Body Battery and stress are under `garmin_derived`. `checkin` is your [check-in](#check-in-and-profile) for the day, null when there is none; a date with a check-in but no Garmin data is listed with null health fields. |
 | `get_summaries` | read | Numbers computed at ingest, at most 366 days: weekly volume per sport (Monday-start weeks) and per-day rolling HRV, resting heart rate, sleep and longest-run figures. |
 | `request_sync` | write | Ask coachd to sync from Garmin, and intervals.icu when configured, now. Rate-limited (`COACHD_SYNC_MIN_INTERVAL`, 10 min by default). |
 
@@ -27,6 +27,34 @@ Every tool coachd offers an agent. Write tools need the write scope and change o
 | `delete_note` | write | Delete a note an agent wrote. |
 
 Agents can edit or delete only notes that agents wrote. Your own notes are read-only to them.
+
+## Check-in and profile
+
+| Tool | Kind | What it does |
+|---|---|---|
+| `log_checkin` | write | Store your check-in for a date: today or up to 6 days back in your timezone, never a future date. Every field is optional, at least one is required. A second check-in for a date replaces the first whole; there is no delete, so a wrong entry is corrected by writing the right one. Returns the stored check-in. |
+| `get_profile` | read | Your settings from [intervals.icu](/docs/install/intervals/), read from coachd's store: `sport_settings`, one entry per sport-settings row, each with `source` (`intervals_icu`) and `updated_on`. An empty list when intervals.icu is off or nothing is stored. |
+
+The check-in scales have fixed ends, so two agents write comparable numbers:
+
+| Field | Values | Ends |
+|---|---|---|
+| `soreness` | 1 to 5 | 1 none, 5 severe |
+| `fatigue` | 1 to 5 | 1 fresh, 5 exhausted |
+| `stress` | 1 to 5 | 1 calm, 5 very stressed |
+| `mood` | 1 to 5 | 1 low, 5 great |
+| `motivation` | 1 to 5 | 1 none, 5 high |
+| `sleep_quality` | 1 to 5 | 1 poor, 5 great |
+| `pain` | up to 5 entries | each `{area, side, level}`, `level` 0 (none) to 10 (worst) |
+| `note` | up to 300 characters | your own words |
+
+`pain.area` is one of `foot`, `ankle`, `achilles`, `calf`, `shin`, `knee`, `hamstring`, `quad`, `hip`, `groin`, `glute`, `lower_back`, `upper_back`, `neck`, `shoulder`, `arm`, `other`. `pain.side` is `left`, `right`, `both` or `none`.
+
+A check-in reads back with `reported_via` `agent`, `updated_at`, and the note as `note_untrusted`. coachd stores what the agent was told and judges nothing; the tool description tells the agent to record only what you said.
+
+`get_profile` entries carry `sports` (intervals.icu activity types), `ftp_w` and `indoor_ftp_w` in watts, `threshold_hr_bpm` and `max_hr_bpm` in beats per minute, `threshold_speed_mps` in metres per second, `power_zone_upper_pct_ftp` (zone upper bounds, percent of FTP) and `hr_zone_upper_bpm` (zone upper bounds, beats per minute), lowest zone first. A value you have not set is null. `updated_on` is the date intervals.icu last changed the entry, so an agent can see how old a threshold is.
+
+These tools added fields to existing outputs, so an AI client connected before the upgrade holds the old definitions: reconnect it.
 
 ## Workouts
 
@@ -52,4 +80,4 @@ The watch app shows it and, with background checks on, notifies you within about
 
 ## Untrusted text
 
-Activity names and descriptions from Garmin and intervals.icu come back as `name_untrusted`: anyone who can name an activity could try to instruct the agent through it. Agent-written rationale, names and workout text read back from coachd are labelled the same way. Agents should treat them as data, never as instructions.
+Activity names and descriptions from Garmin and intervals.icu come back as `name_untrusted`: anyone who can name an activity could try to instruct the agent through it. The check-in note comes back as `note_untrusted`, and so do agent-written rationale, names and workout text. Agents should treat them as data, never as instructions.

@@ -58,6 +58,19 @@ coachd reads the key only at start. The first sync reaches back `COACHD_BACKFILL
 
 To an agent, such an activity has `source` `intervals_icu` and a negative `id` (`i55751783` on intervals.icu is `-55751783` in coachd), and its `garmin_derived` is all null; a Garmin activity's `intervals_derived` is all null. `get_status` lists the data type `intervals_activities`. An activity of the last 14 days that you delete in intervals.icu is removed from coachd at a following sync.
 
+## Your thresholds and zones
+
+With the key set, each sync also reads your sport settings from intervals.icu, one request more. An agent reads them with `get_profile`. Per sport-settings row coachd keeps:
+
+- the intervals.icu activity types it applies to (such as `Ride`, `Run`);
+- FTP and indoor FTP, in watts;
+- threshold heart rate and maximum heart rate, in beats per minute;
+- threshold speed, in metres per second;
+- power zone upper bounds, in percent of FTP, and heart-rate zone upper bounds, in beats per minute;
+- the date intervals.icu last changed the row.
+
+Zone names and pace zones are not imported. Edit the values in intervals.icu, not in coachd: the next sync replaces what coachd holds, and a failed read keeps the previous values. `get_status` lists the data type `intervals_profile`; it shares the pause after a rate limit. When you turn intervals.icu off, the stored settings go too. coachd only stores and shows them: it does not use them in a workout or a warning.
+
 ## One session, two copies
 
 When both sources hold the same session, the richer copy is shown and the other is hidden. Two activities are the same session when they have the same sport and the time both cover is at least half of the shorter one. Of such a pair:
@@ -72,4 +85,4 @@ So a MyWhoosh ride that the watch also recorded, with heart rate only, shows as 
 
 intervals.icu and Garmin sync independently: a failure of one never stops the other, and a rate limit from intervals.icu pauses only intervals.icu calls. `get_status` shows `auth_failed` on `intervals_activities` for a rejected key and `rate_limited` while paused; `request_sync` then answers `auth_failed` or `failed`, so check `get_status` for which data type failed ([troubleshooting](/docs/operations/troubleshooting/)). The `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) leaves intervals.icu out; the dashboard's **Last success age by data type** panel shows it.
 
-To turn it off, remove the override and run `docker compose up -d --force-recreate coachd`. Activities already stored stay; `get_status` stops listing `intervals_activities`. Turned on again, the first sync reaches back `COACHD_BACKFILL_DAYS` again, updating what is already stored rather than adding it twice.
+To turn it off, remove the override and run `docker compose up -d --force-recreate coachd`. Activities already stored stay; `get_status` stops listing `intervals_activities` and `intervals_profile`, and `get_profile` returns an empty list. Turned on again, the first sync reaches back `COACHD_BACKFILL_DAYS` again, updating what is already stored rather than adding it twice.

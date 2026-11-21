@@ -21,6 +21,8 @@ At ingest it computes simple totals (weekly volume, longest run, HRV against you
 - An activity deleted in Garmin Connect disappears from coachd too, once Garmin confirms it is gone. The raw JSON and FIT file are kept.
 - Activity names and descriptions reach the agent labelled untrusted: anyone who can name an activity could try to instruct the agent through it.
 - The "How did you feel?" and RPE answers you give on the watch after an activity reach the agent too.
+- Your daily check-in (soreness, fatigue, mood and so on) is asked by the agent in chat and stored by it with `log_checkin`, so the next conversation sees it.
+- With intervals.icu connected, your FTP, heart-rate thresholds and zones are readable with `get_profile`.
 
 ## Context
 

@@ -58,10 +58,10 @@ All training evaluation, coaching and planning happens in the AI agent. The runn
 - Weather. The agent fetches it itself. [call]
 - coachd's own chat UI, its own LLM, or any LLM API keys. [owner]
 - Starting the morning conversation. Claude Duet does this. [owner] (2026-10-25: an optional post-run webhook with IDs only tells the runner's own automation that an activity arrived; coachd still starts nothing itself, `post-run-webhook.md`.) (2026-11-21: coachd now also says when there is something to talk about, with webhook events for a ready day, an unmatched workout and a closed week, optional fixed-text ntfy nudges, and a push for an agent message; it still starts no conversation and writes no text, `proactive.md`.)
-- Storing check-ins (feel, RPE) as structured data. They live in the agent's conversation, and the agent can write durable facts into notes. [call]
+- Storing check-ins (feel, RPE) as structured data. They live in the agent's conversation, and the agent can write durable facts into notes. [call] (2026-11-21: reversed for the runner's daily check-in. An agent asks and stores the answer with `log_checkin`, and reads it back in `get_daily_health`; coachd evaluates nothing and offers no form on the page or watch, `checkin-profile.md`.)
 - Multi-user or hosted operation.
 - Pushing completed activities into Garmin, gear tracking, medical or nutrition advice.
-- Non-Garmin data sources.
+- Non-Garmin data sources. (2026-11-21: intervals.icu is a second source for activities, `intervals-activities.md`, and for the runner's thresholds and zones, `checkin-profile.md`; coachd keeps no wellness data from it.)
 - Unofficial Garmin Connect web upload. [owner, via approved stack]
 
 ### Anti-goals: failures even if everything "works"

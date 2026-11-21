@@ -12,8 +12,12 @@ The release workflow publishes the section whose heading matches the pushed tag 
 - **`COACHD_NUDGES`:** with ntfy configured, `true` sends a fixed-text push for the three new moments. Default `false`.
 - **Agent messages on the page and as a push:** the home page lists the newest 5 messages from the last 7 days, and with ntfy configured a message sends a push that says only that one waits (at most one per 15 minutes).
 
+- **Check-ins:** `log_checkin` stores the runner's own check-in for a day: soreness, fatigue, stress, mood, motivation and sleep quality (each 1 to 5), up to 5 pain entries and a note of up to 300 characters. The date is today or up to 6 days back. `get_daily_health` shows it as `checkin`, with the note as `note_untrusted` ([MCP tools](https://stefiix92.github.io/coachd/docs/agents/tools/)).
+- **Athlete profile:** with intervals.icu connected, each sync also reads your sport settings. `get_profile` returns FTP, indoor FTP, threshold and maximum heart rate, threshold speed and zone upper bounds per sport, with the date they were last changed. `get_status` lists the data type `intervals_profile` ([intervals.icu](https://stefiix92.github.io/coachd/docs/install/intervals/)).
+
 ### Changed
 
+- Tool outputs gained fields: `get_daily_health` days have `checkin`, and a date with a check-in but no Garmin data is listed with null health fields. An AI client connected before the upgrade holds the old tool definitions: reconnect it.
 - The `send_message` description now says where a message shows. Its input and output are unchanged. Events and nudges stay off until you set the new variables; agent messages now show on the page and, with ntfy configured, send a push.
 
 ## [0.6.2] - 2026-11-21
