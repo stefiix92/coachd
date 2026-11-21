@@ -50,7 +50,7 @@ const (
 
 type notice struct {
 	kind  noticeKind
-	id    string // proposal notices only
+	id    string // the proposal ID: proposal notices and workout.unmatched nudges
 	event string // nudges only: the event name (never set for the message push)
 	date  civil.Date
 	link  trace.SpanContext

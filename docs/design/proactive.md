@@ -25,7 +25,8 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
   `week.closed`.
 - An agent message reaches the watch (as today), the runner's page, and the phone as an ntfy push.
 - Optional ntfy nudges for the same three moments.
-- An upgrade changes nothing until the runner opts in.
+- Events and nudges change nothing until the runner opts in. Agent messages on the page, and the
+  message push for everyone with ntfy configured, are on after the upgrade.
 
 **Non-goals**
 - An LLM, an LLM key, prompts or a scheduler for agents inside coachd. A companion container that
@@ -46,7 +47,7 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
 | Event | Fires when | Body |
 |---|---|---|
 | `activity.stored` | unchanged (`post-run-webhook.md`) | unchanged, byte for byte |
-| `health.day_ready` | today's `daily_health` row first has a sleep duration | `{"event":"health.day_ready","date":"2026-11-21"}` |
+| `health.day_ready` | today's `daily_health` row first has a sleep duration above zero | `{"event":"health.day_ready","date":"2026-11-21"}` |
 | `workout.unmatched` | at or after 06:00 local, once yesterday's activities are in (below), a proposal dated yesterday is `delivered` and no activity carried it out | `{"event":"workout.unmatched","date":"2026-11-20","proposal_id":"…"}` |
 | `week.closed` | Monday at or after 06:00 local | `{"event":"week.closed","date":"2026-11-16"}` (the Monday that started the closed week) |
 
@@ -59,8 +60,12 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
   `workout-outcome.md`). Until both hold, `workout.unmatched` is not evaluated: nothing is sent or
   marked, and the next check tries again. This orders the check; it evaluates nothing. **[call]**
 - Each event fires once per key (the date, or the proposal ID), remembered in the database, so a
-  restart repeats nothing. Events are evaluated only for today, yesterday and the week just closed,
-  so downtime sends at most one of each kind when coachd comes back. **[call]**
+  restart repeats nothing. Events are evaluated only for today (`health.day_ready`), yesterday
+  (`workout.unmatched`) and, on a Monday, the week just closed, so downtime sends no burst when
+  coachd comes back: at most one `health.day_ready`, one `workout.unmatched` per proposal delivered
+  for yesterday, and one `week.closed`. **[call]**
+- `week.closed` is checked only on Mondays. If coachd is down all Monday, that week's event is not
+  sent, also not on Tuesday. **[call]**
 - An event nobody is configured to receive (not in `COACHD_WEBHOOK_EVENTS`, and nudges off) is not
   marked, so turning it on later starts with the current day or week. When nobody receives any of the
   three, no check runs. **[call]**
@@ -71,9 +76,10 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
 `COACHD_WEBHOOK_EVENTS` is a comma-separated list of the four event names. Its default is
 `activity.stored`, so an existing receiver sees no change. **[call]** An unknown name is a start
 error. The webhook receives day, workout and week events only when its list holds them; an event
-neither it nor a nudge receives is not marked (§3). Delivery, retries, queue and headers are those of `post-run-webhook.md` §5. The span for the
-new events is `event.webhook` with `event`, `outcome` and, when present, `proposal_id`. `event` joins
-the telemetry allowlist: its values are the four fixed names.
+neither it nor a nudge receives is not marked (§3). Delivery, retries, queue and headers are those
+of `post-run-webhook.md` §5. The span for the new events is `event.webhook` with `event`, `outcome`
+and, when present, `proposal_id`. `event` joins the telemetry allowlist: its values are the four
+fixed names.
 
 ## 5. Messages
 
@@ -115,7 +121,9 @@ platform's current documentation. **[builder]**
 
 - Triggers: each event fires once at its moment and never twice; nothing before 06:00; a restart
   with marks present sends nothing; a matched workout sends nothing; a first run on a database with
-  months of history sends at most one of each.
+  months of history sends only today's, yesterday's and the closed week's events; `workout.unmatched`
+  waits for a morning activities sync and for pending FIT files; an event no sink wants is not
+  marked; a sleep duration of zero is not a ready day.
 - Webhook: the three bodies exactly; `activity.stored` body unchanged; an event outside
   `COACHD_WEBHOOK_EVENTS` is not sent.
 - Ntfy: the fixed texts and links; no message text in a request; the 15-minute limit.

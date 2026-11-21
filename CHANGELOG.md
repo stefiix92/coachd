@@ -14,7 +14,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ### Changed
 
-- The `send_message` description now says where a message shows. Its input and output are unchanged; nothing changes for an existing setup until you set the new variables.
+- The `send_message` description now says where a message shows. Its input and output are unchanged. Events and nudges stay off until you set the new variables; agent messages now show on the page and, with ntfy configured, send a push.
 
 ## [0.6.2] - 2026-11-21
 

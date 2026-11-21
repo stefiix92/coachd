@@ -19,6 +19,8 @@ coachd sends an [ntfy](https://ntfy.sh) notice when a workout is ready to review
    docker compose up -d --force-recreate coachd
    ```
 
+ntfy needs the public lane and `COACHD_PUBLIC_URL`. coachd reads the token only at start, so recreate it after changing the token.
+
 ### Nudges
 
 With `COACHD_NUDGES=true` (default `false`, needs `COACHD_NTFY_URL`) coachd also sends one fixed-text notice for each of three moments, with a link to the page:
@@ -34,8 +36,6 @@ They carry no number, name or note. The events behind them are described in [Pro
 ### Agent messages
 
 When your agent calls `send_message`, ntfy gets "Your agent left a message" with a link to the page, where the message is listed. The message text is never sent to ntfy. At most one such push goes out per 15 minutes.
-
-ntfy needs the public lane and `COACHD_PUBLIC_URL`. coachd reads the token only at start, so recreate it after changing the token.
 
 ## Post-run webhook
 

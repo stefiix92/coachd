@@ -226,6 +226,19 @@ func TestHealthDayNotReadyWithoutSleep(t *testing.T) {
 	e.count(t, 0)
 }
 
+// A zero sleep duration is no sleep data: the day is ready once it is above
+// zero.
+func TestHealthDayNotReadyWithZeroSleep(t *testing.T) {
+	e := newEnv(t, "2026-11-03 08:00")
+	e.health(t, "2026-11-03", ip(0))
+	e.check(t)
+	e.count(t, 0)
+	e.noMarks(t)
+	e.health(t, "2026-11-03", ip(25000))
+	e.check(t)
+	e.count(t, 1)
+}
+
 func TestWorkoutUnmatchedAfterSix(t *testing.T) {
 	e := newEnv(t, "2026-11-03 05:59")
 	e.proposal(t, "p1", "2026-11-02")

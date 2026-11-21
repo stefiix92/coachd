@@ -1,6 +1,6 @@
 ---
 title: Proactive events
-weight: 3
+weight: 4
 ---
 
 coachd has no LLM and writes no coaching text. It can, though, tell your own automation when there is something worth talking about, and it gives your agent a way to reach your phone. This page covers the events, the two switches and a recipe that turns an event into an agent run.
@@ -12,12 +12,14 @@ The webhook ([ntfy and webhook](/docs/install/notifications/#post-run-webhook)) 
 | Event | Fires when | Body |
 |---|---|---|
 | `activity.stored` | A recent activity is stored. | Unchanged: `{"event":"activity.stored","activity_id":…,"date":…,"sport":…,"proposal_id":…}` |
-| `health.day_ready` | Today's sleep duration is first stored. | `{"event":"health.day_ready","date":"2026-11-21"}` |
+| `health.day_ready` | Today's sleep duration is first stored above zero. | `{"event":"health.day_ready","date":"2026-11-21"}` |
 | `workout.unmatched` | At or after 06:00 local, once yesterday's activities are in, a workout dated yesterday is `delivered` and no activity carried it out. | `{"event":"workout.unmatched","date":"2026-11-20","proposal_id":"…"}` |
 | `week.closed` | Monday at or after 06:00 local. | `{"event":"week.closed","date":"2026-11-16"}`: the Monday that started the week that closed. |
 
-- Each event fires once per date (or per proposal ID). It is remembered in the database, so a restart repeats nothing.
-- coachd checks every 5 minutes, independent of the Garmin sync, and looks only at today, yesterday and the week just closed. After downtime you get at most one of each kind, never a burst.
+- Each event fires once per date (`workout.unmatched`: once per proposal ID). It is remembered in the database, so a restart repeats nothing.
+- Each event is sent at most once. Delivery is retried twice within half a minute, as for `activity.stored`; a receiver that is down longer, or a full queue, misses the event, and nothing sends it again later.
+- coachd checks every 5 minutes, independent of the Garmin sync, and looks only at today, yesterday and the week just closed. After downtime you get at most today's `health.day_ready`, one `workout.unmatched` per workout delivered for yesterday, and `week.closed` on a Monday: never a burst.
+- `week.closed` is sent only on a Monday. If coachd is down all Monday, that week's event is not sent, also not on Tuesday.
 - `workout.unmatched` waits until yesterday's activities are in: a Garmin activity sync has succeeded at or after 06:00 local today, and no activity from yesterday or today still waits for its FIT file to download (coachd matches a run to its workout by the steps in that file). Until then coachd sends nothing and checks again 5 minutes later.
 - `workout.unmatched` says only that no stored activity matches. An activity that reaches Garmin after that sync (a watch that synced late) is not seen, so the agent should call `request_sync` and look again before it says the workout was missed. A workout that was approved but never reached the watch expires and sends nothing.
 

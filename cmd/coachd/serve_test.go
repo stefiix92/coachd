@@ -1448,6 +1448,9 @@ func webhookReceiver(t *testing.T) (url string, bodies func() []string) {
 	}
 }
 
+// shortTriggers makes serve check for events every 100 ms. It sets the
+// package variable triggersEvery, so a test that calls it must not use
+// t.Parallel.
 func shortTriggers(t *testing.T) {
 	t.Helper()
 	triggersEvery = 100 * time.Millisecond

@@ -116,7 +116,7 @@ func (s *Service) Check(ctx context.Context) error {
 			return err
 		}
 		for _, h := range hs {
-			if h.SleepS != nil {
+			if h.SleepS != nil && *h.SleepS > 0 {
 				if err := s.fire(ctx, Event{Name: HealthDayReady, Date: today}, today.String()); err != nil {
 					return err
 				}
