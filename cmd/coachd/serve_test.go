@@ -1413,3 +1413,72 @@ func TestServeIntervalsKeyNeverLogged(t *testing.T) {
 		}
 	}
 }
+
+// sleepGarmin returns last night's sleep, dated today, on every sync.
+type sleepGarmin struct {
+	emptyGarmin
+	tz *time.Location
+}
+
+func (g sleepGarmin) SleepRange(context.Context, civil.Date, civil.Date) ([]garmin.Item[garmin.SleepDTO], error) {
+	secs := int64(7 * 3600)
+	today := civil.Of(time.Now(), g.tz).String()
+	return []garmin.Item[garmin.SleepDTO]{{
+		V:   garmin.SleepDTO{CalendarDate: today, SleepTimeSeconds: &secs},
+		Raw: json.RawMessage(`{"calendarDate":"` + today + `","sleepTimeSeconds":25200}`),
+	}}, nil
+}
+
+// webhookReceiver collects the bodies a receiver got.
+func webhookReceiver(t *testing.T) (url string, bodies func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, string(b))
+		mu.Unlock()
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(got)
+	}
+}
+
+func shortTriggers(t *testing.T) {
+	t.Helper()
+	triggersEvery = 100 * time.Millisecond
+	t.Cleanup(func() { triggersEvery = 0 })
+}
+
+// With health.day_ready listed, the receiver gets the day event once, with
+// the date only, after today's sleep is stored.
+func TestServeFiresDayEvent(t *testing.T) {
+	shortTriggers(t)
+	cfg := testCfg(t)
+	url, bodies := webhookReceiver(t)
+	cfg.WebhookURL, cfg.WebhookEvents = url, []string{"health.day_ready"}
+	startServeGarmin(t, cfg, testTel(t), sleepGarmin{tz: cfg.TZ}, testKeys(t, cfg))
+	want := `{"event":"health.day_ready","date":"` + civil.Of(time.Now(), cfg.TZ).String() + `"}`
+	eventually(t, "the day event", func() bool { return len(bodies()) > 0 })
+	time.Sleep(500 * time.Millisecond) // several checks: still one event
+	if got := bodies(); len(got) != 1 || strings.TrimSpace(got[0]) != want {
+		t.Errorf("receiver got %q, want exactly [%s]", got, want)
+	}
+}
+
+// With the default event list the receiver never hears of the day event.
+func TestServeDefaultEventsUnchanged(t *testing.T) {
+	shortTriggers(t)
+	cfg := testCfg(t)
+	url, bodies := webhookReceiver(t)
+	cfg.WebhookURL, cfg.WebhookEvents = url, []string{"activity.stored"}
+	startServeGarmin(t, cfg, testTel(t), sleepGarmin{tz: cfg.TZ}, testKeys(t, cfg))
+	time.Sleep(1500 * time.Millisecond)
+	if got := bodies(); len(got) != 0 {
+		t.Errorf("receiver got %q, want nothing", got)
+	}
+}

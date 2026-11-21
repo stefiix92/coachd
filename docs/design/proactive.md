@@ -1,6 +1,6 @@
 # coachd: proactive events and messages
 
-Status: draft for owner approval, 2026-11-21. Extends `post-run-webhook.md` and `watch-v2.md` (agent
+Status: approved by the owner 2026-11-21. Extends `post-run-webhook.md` and `watch-v2.md` (agent
 messages). Tags as in the main design: **[owner]** = owner decision, **[call]** = designer's call,
 **[builder]** = left to the implementer.
 
@@ -76,7 +76,8 @@ the telemetry allowlist: its values are the four fixed names.
   to the page. The message text never goes to ntfy. **[call]**
 
 At most one message push per 15 minutes; a message inside that window is stored and shown but not
-pushed. **[call]** The tool description says all of this.
+pushed. **[call]** The window starts only when a push was actually queued, and a push held back by
+the limit is not counted in metrics. The tool description says all of this.
 
 ## 6. Nudges
 
@@ -90,6 +91,9 @@ Each of the three new events then also sends one ntfy push with a link to the pa
 | `week.closed` | "Last week's numbers are complete" |
 
 Nudges and the webhook are independent: either, both or neither.
+
+A nudge and the message push use the span `event.notify`. A nudge's span and logs carry `event`
+(and `proposal_id` for `workout.unmatched`); the message push carries no `event` key.
 
 ## 7. Documentation
 

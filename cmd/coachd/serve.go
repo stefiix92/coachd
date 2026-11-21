@@ -39,6 +39,7 @@ import (
 	"github.com/stefiix92/coachd/internal/proposals"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 	"github.com/stefiix92/coachd/internal/web"
 	"github.com/stefiix92/coachd/internal/workout"
 )
@@ -59,6 +60,10 @@ const (
 	// mode (spec §6, I1).
 	auditSamplePerHour = 60
 )
+
+// triggersEvery is the time between event checks; zero is the triggers
+// package default (5 minutes). Tests shorten it.
+var triggersEvery time.Duration
 
 // Addrs are the addresses the listeners actually bound; Public is empty when
 // the public lane is disabled.
@@ -241,10 +246,23 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 		log.Info("ntfy disabled")
 	}
 	propSvc := proposals.New(propDeps)
-	mcpHandler := mcpserver.Handler(mcpserver.New(mcpserver.Deps{
+	mcpDeps := mcpserver.Deps{
 		DB: db, Sync: svc, Proposals: propSvc, TZ: cfg.TZ, Now: time.Now, KeyExpires: keys.Expires,
 		DataDir: cfg.DataDir, Metrics: tel.Metrics, Audit: aq, Log: tel.Logger, Tracer: tel.Tracer,
-	}, version))
+	}
+	if ntfy != nil {
+		mcpDeps.Messages = ntfy // only when configured: a nil *Ntfy in the interface is not nil
+	}
+	mcpHandler := mcpserver.Handler(mcpserver.New(mcpDeps, version))
+	// Day, workout and week events go to the webhook when configured and to
+	// ntfy only when the runner turned nudges on.
+	var sinks []triggers.Sink
+	if webhook != nil {
+		sinks = append(sinks, webhook)
+	}
+	if ntfy != nil && cfg.Nudges {
+		sinks = append(sinks, ntfy)
+	}
 	// The page has its own limiter: Managed OAuth agents share the runner's
 	// Access subject, and their /mcp traffic must not starve the page.
 	mcpLim, webLim := auth.NewLimiter(120, 30), auth.NewLimiter(120, 30)
@@ -371,6 +389,11 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 	if ntfy != nil {
 		wg.Add(1)
 		go func() { defer wg.Done(); ntfy.Run(runCtx) }()
+	}
+	if len(sinks) > 0 {
+		trig := triggers.New(triggers.Options{DB: db, TZ: cfg.TZ, Now: time.Now, Sinks: sinks, Log: tel.Logger, Interval: triggersEvery})
+		wg.Add(1)
+		go func() { defer wg.Done(); trig.Run(runCtx) }()
 	}
 	go func() { defer wg.Done(); svc.Run(runCtx) }()
 	go func() { defer wg.Done(); housekeepingLoop(runCtx, db, log) }()

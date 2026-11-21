@@ -32,8 +32,10 @@ Workouts
   cancel_proposal only for one I haven't decided on.
 - After a structured workout, call get_activity with detail "laps": compare
   workout.executed with the plan, and read perceived (my feel and RPE).
-- send_message is for short notes on my watch (at most 300 characters). It
-  cannot carry a workout.
+- send_message is for short notes on my watch and on coachd's page (at most
+  300 characters). It cannot carry a workout.
+- When coachd wakes you with an event (see the proactive page), read what you
+  need from coachd first: the event carries only a date and ids.
 
 If I report pain or illness, suggest I stop and see a professional.
 ```
