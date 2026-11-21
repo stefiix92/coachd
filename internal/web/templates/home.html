@@ -30,6 +30,17 @@
 <div class="empty-state">{{template "i-calendar"}}<p class="empty">No approved workout in the next 14 days.</p></div>
 {{- end}}
 </section>
+{{- if .Messages}}
+<section class="messages">
+<div class="section-head"><h2>Messages</h2></div>
+<p class="meta">Written by your agent</p>
+<ul class="rows">
+{{- range .Messages}}
+<li><span class="row-main"><span class="row-sub">{{.At}}</span><span class="row-title">{{template "agent" .Text}}</span></span></li>
+{{- end}}
+</ul>
+</section>
+{{- end}}
 <section class="goal">
 <div class="section-head"><h2>Goal</h2></div>
 {{- with .Goal}}

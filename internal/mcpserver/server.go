@@ -48,7 +48,13 @@ type Deps struct {
 	Audit      auth.Auditor
 	Log        *slog.Logger
 	Tracer     trace.Tracer
+	// Messages is told when the agent stores a message; nil means no push.
+	Messages MessageNotifier
 }
+
+// MessageNotifier is told that the agent left a message. It never blocks and
+// limits its own pushes.
+type MessageNotifier interface{ AgentMessage() }
 
 // svc holds the defaulted Deps the tool handlers run against.
 type svc struct{ Deps }
