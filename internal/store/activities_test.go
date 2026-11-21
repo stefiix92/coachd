@@ -185,13 +185,13 @@ func TestActivitiesNeedingFITStopsAfterThreeFailures(t *testing.T) {
 	}
 }
 
-// HasPendingFIT sees live activities in the range whose FIT is pending, the
-// hidden copy included; a stored, failed or soft-deleted one does not count.
-func TestHasPendingFIT(t *testing.T) {
+// HasFITWaiting sees live activities in the range whose FIT is pending, the
+// hidden copy included; a stored, soft-deleted or capped-out one does not count.
+func TestHasFITWaiting(t *testing.T) {
 	db, ctx := openTest(t), context.Background()
 	pending := func(from, to string) bool {
 		t.Helper()
-		got, err := db.HasPendingFIT(ctx, d(from), d(to))
+		got, err := db.HasFITWaiting(ctx, d(from), d(to))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +204,9 @@ func TestHasPendingFIT(t *testing.T) {
 	db.UpsertActivity(ctx, mkAct(2, "2026-11-03", SportRunning, 1), nil)
 	db.SetFIT(ctx, 2, "x.fit", FITStored)
 	db.UpsertActivity(ctx, mkAct(3, "2026-11-03", SportRunning, 1), nil)
-	db.SetFIT(ctx, 3, "", FITFailed)
+	for i := 0; i < 3; i++ {
+		db.SetFIT(ctx, 3, "", FITFailed)
+	}
 	db.UpsertActivity(ctx, mkAct(4, "2026-11-03", SportRunning, 1), nil)
 	db.MarkActivityDeleted(ctx, 4, time.Now())
 	db.UpsertActivity(ctx, mkAct(5, "2026-10-31", SportRunning, 1), nil)
@@ -769,5 +771,22 @@ func TestLiveActivityQualifiesEveryColumn(t *testing.T) {
 	}
 	if want := "deleted_at IS NULL AND hidden_by IS NULL"; liveActivity != want {
 		t.Errorf("liveActivity = %q, want %q", liveActivity, want)
+	}
+}
+
+// A failed FIT counts as waiting while attempts are left, the same rule as
+// ActivitiesNeedingFIT, and stops counting at the cap.
+func TestHasFITWaitingFailedWithAttemptsLeft(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	db.UpsertActivity(ctx, mkAct(1, "2026-11-03", SportRunning, 1), nil)
+	for i := 1; i <= 3; i++ {
+		db.SetFIT(ctx, 1, "", FITFailed)
+		got, err := db.HasFITWaiting(ctx, d("2026-11-03"), d("2026-11-03"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := i < 3; got != want {
+			t.Fatalf("after %d failures: waiting = %v, want %v", i, got, want)
+		}
 	}
 }

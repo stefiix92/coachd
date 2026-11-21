@@ -272,26 +272,36 @@ func decodeCursor(c string) (string, int64, error) {
 	return date, id, nil
 }
 
+// maxFITAttempts is how many failed downloads an activity's FIT gets before
+// it is given up on.
+const maxFITAttempts = 3
+
+// fitNeededWhere selects live activities whose FIT is pending, or failed
+// fewer than maxFITAttempts times: the ones the downloader still tries.
+// Hidden copies are included: their FIT is still downloaded.
+var fitNeededWhere = `deleted_at IS NULL AND (fit_status='pending' OR (fit_status='failed' AND fit_attempts < ` + strconv.Itoa(maxFITAttempts) + `))`
+
 // ActivitiesNeedingFIT returns activities whose FIT is pending, or failed fewer
-// than 3 times. Hidden copies are included: their FIT is still downloaded.
+// than maxFITAttempts times. Hidden copies are included: their FIT is still
+// downloaded.
 func (db *DB) ActivitiesNeedingFIT(ctx context.Context, limit int) ([]Activity, error) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
-	return db.queryActivitiesWhere(ctx, `deleted_at IS NULL AND (fit_status='pending' OR (fit_status='failed' AND fit_attempts < 3))`, nil,
+	return db.queryActivitiesWhere(ctx, fitNeededWhere, nil,
 		"ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(limit))
 }
 
-// HasPendingFIT reports whether an activity dated in [from, to] still waits
-// for its first FIT download (status pending). Hidden copies count, as in
-// ActivitiesNeedingFIT; soft-deleted activities do not.
-func (db *DB) HasPendingFIT(ctx context.Context, from, to civil.Date) (bool, error) {
+// HasFITWaiting reports whether an activity dated in [from, to] still needs
+// its FIT downloaded: the ActivitiesNeedingFIT rule (pending, or failed with
+// attempts left). Hidden copies count; soft-deleted and given-up ones do not.
+func (db *DB) HasFITWaiting(ctx context.Context, from, to civil.Date) (bool, error) {
 	var n int
 	err := db.sql.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM activities WHERE deleted_at IS NULL AND fit_status='pending' AND date >= ? AND date <= ?)`,
+		`SELECT EXISTS (SELECT 1 FROM activities WHERE `+fitNeededWhere+` AND date >= ? AND date <= ?)`,
 		from.String(), to.String()).Scan(&n)
 	if err != nil {
-		return false, fmt.Errorf("store: pending fit: %w", err)
+		return false, fmt.Errorf("store: fit waiting: %w", err)
 	}
 	return n != 0, nil
 }

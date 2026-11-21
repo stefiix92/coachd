@@ -54,11 +54,17 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
 - `workout.unmatched`, not "missed": coachd knows only that no stored activity matches. **[call]** A
   proposal that was approved but never reached the watch expires and sends nothing. **[call]**
 - 06:00 gives a late evening activity time to sync. **[call]**
-- Yesterday's activities are in when both hold: (a) the `activities` sync state shows a successful
-  Garmin activities sync at or after 06:00 local today, and (b) no activity dated yesterday or today
-  still has its FIT file `pending` (the link to a proposal needs the FIT's recorded steps,
-  `workout-outcome.md`). Until both hold, `workout.unmatched` is not evaluated: nothing is sent or
-  marked, and the next check tries again. This orders the check; it evaluates nothing. **[call]**
+- Yesterday's activities are in when all hold: (a) the `activities` sync state shows a successful
+  Garmin activities sync that started at or after 06:00 local today (the state's last success time
+  is the sync's start); (b) when the intervals.icu source is on (its `intervals_activities` sync
+  state exists), the same holds for that sync; without the row, (b) is skipped; and (c) no activity
+  dated yesterday or today still needs its FIT file downloaded: status `pending`, or `failed` with
+  attempts left (the rule the downloader uses; a file given up on after its last attempt, or marked
+  unavailable, does not hold the gate). The link to a proposal needs the FIT's recorded steps
+  (`workout-outcome.md`). Until all hold, `workout.unmatched` is not evaluated: nothing is sent or
+  marked, and the next check tries again. If the gate never opens during a day (no successful sync
+  after 06:00, or a file that stays undownloaded all day), that day's `workout.unmatched` is not
+  sent: the next day looks at a new yesterday. This orders the check; it evaluates nothing. **[call]**
 - Each event fires once per key (the date, or the proposal ID), remembered in the database, so a
   restart repeats nothing. Events are evaluated only for today (`health.day_ready`), yesterday
   (`workout.unmatched`) and, on a Monday, the week just closed, so downtime sends no burst when
@@ -122,7 +128,7 @@ platform's current documentation. **[builder]**
 - Triggers: each event fires once at its moment and never twice; nothing before 06:00; a restart
   with marks present sends nothing; a matched workout sends nothing; a first run on a database with
   months of history sends only today's, yesterday's and the closed week's events; `workout.unmatched`
-  waits for a morning activities sync and for pending FIT files; an event no sink wants is not
+  waits for a morning activities sync (and the intervals.icu one when on) and for FIT files still to be downloaded, retries included; an event no sink wants is not
   marked; a sleep duration of zero is not a ready day.
 - Webhook: the three bodies exactly; `activity.stored` body unchanged; an event outside
   `COACHD_WEBHOOK_EVENTS` is not sent.

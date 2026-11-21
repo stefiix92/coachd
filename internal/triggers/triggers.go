@@ -172,24 +172,31 @@ func (s *Service) checkUnmatched(ctx context.Context, today civil.Date) error {
 }
 
 // activitiesIn reports whether the activities that could carry out
-// yesterday's workout are in: the activities sync succeeded at or after the
-// gate hour today, and no activity dated yesterday or today still has its FIT
-// file pending (linking needs the FIT's detail). It only orders events; it
-// evaluates nothing.
+// yesterday's workout are in: the Garmin activities sync succeeded at or after
+// the gate hour today (so did the intervals.icu sync, when that source is on:
+// its sync state exists), and no activity dated yesterday or today still
+// needs its FIT file downloaded, pending or failed with attempts left
+// (linking needs the FIT's detail). It only orders events; it evaluates
+// nothing.
 func (s *Service) activitiesIn(ctx context.Context, today civil.Date) (bool, error) {
-	st, err := s.o.DB.GetSyncState(ctx, store.SyncTypeActivities)
-	if err != nil {
-		return false, err
-	}
 	gate := time.Date(today.Year, today.Month, today.Day, gateHour, 0, 0, 0, s.o.TZ)
-	if st.LastSuccessAt == nil || st.LastSuccessAt.Before(gate) {
-		return false, nil
+	for _, typ := range []string{store.SyncTypeActivities, store.SyncTypeIntervals} {
+		st, err := s.o.DB.GetSyncState(ctx, typ)
+		if err != nil {
+			return false, err
+		}
+		if typ == store.SyncTypeIntervals && st.DataType == "" {
+			continue // the source is off
+		}
+		if st.LastSuccessAt == nil || st.LastSuccessAt.Before(gate) {
+			return false, nil
+		}
 	}
-	pending, err := s.o.DB.HasPendingFIT(ctx, today.AddDays(-1), today)
+	waiting, err := s.o.DB.HasFITWaiting(ctx, today.AddDays(-1), today)
 	if err != nil {
 		return false, err
 	}
-	return !pending, nil
+	return !waiting, nil
 }
 
 // Run checks now, then on every interval, until ctx ends. A failed check is

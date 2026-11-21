@@ -385,6 +385,77 @@ func TestWorkoutUnmatchedFITWindow(t *testing.T) {
 	e.count(t, 1)
 }
 
+// A FIT that failed but will be retried holds the event back; once it is
+// stored and links, nothing is sent.
+func TestWorkoutUnmatchedWaitsForRetriedFIT(t *testing.T) {
+	e := newEnv(t, "2026-11-03 07:00")
+	e.synced(t, "2026-11-03 06:30")
+	e.proposal(t, "p1", "2026-11-02")
+	e.pendingActivity(t, 100, "2026-11-02")
+	if err := e.db.SetFIT(e.ctx, 100, "", store.FITFailed); err != nil {
+		t.Fatal(err)
+	}
+	e.check(t)
+	e.count(t, 0)
+	e.noMarks(t)
+	e.fitStored(t, 100)
+	e.check(t)
+	e.count(t, 0)
+	e.noMarks(t)
+}
+
+// A FIT that failed at the attempt cap is not retried and does not hold the
+// event back.
+func TestWorkoutUnmatchedFITFailedAtCap(t *testing.T) {
+	e := newEnv(t, "2026-11-03 07:00")
+	e.synced(t, "2026-11-03 06:30")
+	e.proposal(t, "p1", "2026-11-02")
+	e.pendingActivity(t, 100, "2026-11-02")
+	for i := 0; i < 3; i++ {
+		if err := e.db.SetFIT(e.ctx, 100, "", store.FITFailed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.check(t)
+	e.count(t, 1)
+}
+
+// With the intervals.icu source on (its sync state exists), its sync must
+// have succeeded at or after 06:00 too; without the row nothing changes.
+func TestWorkoutUnmatchedWaitsForIntervalsSync(t *testing.T) {
+	e := newEnv(t, "2026-11-03 07:00")
+	e.synced(t, "2026-11-03 06:30")
+	e.proposal(t, "p1", "2026-11-02")
+	put := func(s string) {
+		t.Helper()
+		at := local(s)
+		st := store.SyncState{DataType: store.SyncTypeIntervals, LastAttemptAt: &at, LastSuccessAt: &at, LastOutcome: "ok"}
+		if err := e.db.PutSyncState(e.ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("2026-11-02 23:00")
+	e.check(t)
+	e.count(t, 0)
+	e.noMarks(t)
+	put("2026-11-03 06:30")
+	e.check(t)
+	e.count(t, 1)
+}
+
+// An intervals.icu state row with no success yet holds the event back too.
+func TestWorkoutUnmatchedIntervalsNeverSucceeded(t *testing.T) {
+	e := newEnv(t, "2026-11-03 07:00")
+	e.synced(t, "2026-11-03 06:30")
+	e.proposal(t, "p1", "2026-11-02")
+	at := local("2026-11-03 06:40")
+	if err := e.db.PutSyncState(e.ctx, store.SyncState{DataType: store.SyncTypeIntervals, LastAttemptAt: &at, LastOutcome: "error"}); err != nil {
+		t.Fatal(err)
+	}
+	e.check(t)
+	e.count(t, 0)
+}
+
 // safeRecorder is a recorder that Run's goroutine and the test share.
 type safeRecorder struct {
 	mu  sync.Mutex
