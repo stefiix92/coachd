@@ -26,6 +26,7 @@ import (
 	"github.com/stefiix92/coachd/internal/fitdata"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 )
 
 type webhookRig struct {
@@ -37,6 +38,11 @@ type webhookRig struct {
 }
 
 func newWebhookRig(t *testing.T, url, token string) *webhookRig {
+	t.Helper()
+	return newWebhookRigEvents(t, url, token, []string{EventActivityStored})
+}
+
+func newWebhookRigEvents(t *testing.T, url, token string, events []string) *webhookRig {
 	t.Helper()
 	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "coachd.db"))
 	if err != nil {
@@ -50,7 +56,7 @@ func newWebhookRig(t *testing.T, url, token string) *webhookRig {
 	}
 	logs := &bytes.Buffer{}
 	spans := tracetest.NewSpanRecorder()
-	w := NewWebhook(url, token, db, http.DefaultClient, m, slog.New(slog.NewJSONHandler(logs, nil)),
+	w := NewWebhook(url, token, events, db, http.DefaultClient, m, slog.New(slog.NewJSONHandler(logs, nil)),
 		sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)).Tracer("notify"))
 	w.sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
 	rig := &webhookRig{w: w, db: db, reader: r, logs: logs, spans: spans}
@@ -209,5 +215,132 @@ func TestWebhookQueueFullDrops(t *testing.T) {
 	}
 	if got := rig.outcomes(t); got["dropped"] != 1 {
 		t.Fatalf("outcomes %v", got)
+	}
+}
+
+// receiver collects the bodies an httptest server gets.
+type receiver struct {
+	mu     sync.Mutex
+	bodies []string
+}
+
+func (r *receiver) handler(w http.ResponseWriter, req *http.Request) {
+	b, _ := io.ReadAll(req.Body)
+	r.mu.Lock()
+	r.bodies = append(r.bodies, string(b))
+	r.mu.Unlock()
+}
+
+func (r *receiver) got() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.bodies)
+}
+
+var allEvents = []string{"activity.stored", "health.day_ready", "workout.unmatched", "week.closed"}
+
+func TestWebhookDayEventBodies(t *testing.T) {
+	rc := &receiver{}
+	srv := httptest.NewServer(http.HandlerFunc(rc.handler))
+	defer srv.Close()
+	rig := newWebhookRigEvents(t, srv.URL, "", allEvents)
+	ctx := context.Background()
+	rig.w.Fire(ctx, triggers.Event{Name: triggers.HealthDayReady, Date: civil.Date{Year: 2026, Month: 11, Day: 21}})
+	rig.w.Fire(ctx, triggers.Event{Name: triggers.WorkoutUnmatched, Date: civil.Date{Year: 2026, Month: 11, Day: 20}, ProposalID: "p_1"})
+	rig.w.Fire(ctx, triggers.Event{Name: triggers.WeekClosed, Date: civil.Date{Year: 2026, Month: 11, Day: 16}})
+	rig.run(t, func() bool { return rig.outcomes(t)["sent"] == 3 })
+	want := []string{
+		`{"event":"health.day_ready","date":"2026-11-21"}`,
+		`{"event":"workout.unmatched","date":"2026-11-20","proposal_id":"p_1"}`,
+		`{"event":"week.closed","date":"2026-11-16"}`,
+	}
+	if got := rc.got(); !slices.Equal(got, want) {
+		t.Fatalf("bodies %q, want %q", got, want)
+	}
+}
+
+func TestWebhookActivityBodyUnchanged(t *testing.T) {
+	rc := &receiver{}
+	srv := httptest.NewServer(http.HandlerFunc(rc.handler))
+	defer srv.Close()
+	rig := newWebhookRigEvents(t, srv.URL, "", allEvents)
+	rig.w.ActivityStored(context.Background(), run26)
+	rig.run(t, func() bool { return rig.outcomes(t)["sent"] == 1 })
+	want := `{"event":"activity.stored","activity_id":24745625144,"date":"2026-10-26","sport":"running","proposal_id":null}`
+	if got := rc.got(); len(got) != 1 || got[0] != want {
+		t.Fatalf("bodies %q, want %q", got, want)
+	}
+}
+
+func TestWebhookFiltersEvents(t *testing.T) {
+	// Only activity.stored configured: a week event sends nothing.
+	rig := newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", []string{"activity.stored"})
+	rig.w.Fire(context.Background(), triggers.Event{Name: triggers.WeekClosed, Date: run26.Date})
+	if n := len(rig.w.queue); n != 0 {
+		t.Fatalf("queued %d, want 0 for an unconfigured day event", n)
+	}
+	// Only week.closed configured: an activity sends nothing.
+	rig = newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", []string{"week.closed"})
+	rig.w.ActivityStored(context.Background(), run26)
+	if n := len(rig.w.queue); n != 0 {
+		t.Fatalf("queued %d, want 0 for an unconfigured activity", n)
+	}
+	rig.w.Fire(context.Background(), triggers.Event{Name: triggers.WeekClosed, Date: run26.Date})
+	if n := len(rig.w.queue); n != 1 {
+		t.Fatalf("queued %d, want 1 for the configured event", n)
+	}
+}
+
+func TestWebhookDaySpanKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	rig := newWebhookRigEvents(t, srv.URL, "", allEvents)
+	rig.w.Fire(context.Background(), triggers.Event{Name: triggers.WorkoutUnmatched, Date: run26.Date, ProposalID: "p_1"})
+	rig.run(t, func() bool { return rig.outcomes(t)["sent"] == 1 })
+	var found bool
+	for _, s := range rig.spans.Ended() {
+		if s.Name() != "event.webhook" {
+			continue
+		}
+		found = true
+		got := map[string]string{}
+		for _, kv := range s.Attributes() {
+			got[string(kv.Key)] = kv.Value.String()
+		}
+		want := map[string]string{"event": "workout.unmatched", "outcome": "sent", "proposal_id": "p_1"}
+		if len(got) != len(want) {
+			t.Fatalf("attributes %v, want %v", got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("attributes %v, want %v", got, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no event.webhook span")
+	}
+}
+
+// Fire sends day events only: the activity event has its own body.
+func TestWebhookFireIgnoresActivityEvent(t *testing.T) {
+	rig := newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", allEvents)
+	rig.w.Fire(context.Background(), triggers.Event{Name: EventActivityStored, Date: run26.Date})
+	if n := len(rig.w.queue); n != 0 {
+		t.Fatalf("queued %d, want 0", n)
+	}
+}
+
+// The webhook wants a day, workout or week event only when it is configured;
+// it never wants the activity event as a trigger event.
+func TestWebhookWants(t *testing.T) {
+	rig := newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", []string{"activity.stored", "week.closed"})
+	for name, want := range map[string]bool{
+		triggers.WeekClosed: true, triggers.HealthDayReady: false, triggers.WorkoutUnmatched: false,
+		EventActivityStored: false, "other": false,
+	} {
+		if got := rig.w.Wants(name); got != want {
+			t.Errorf("Wants(%q) = %v, want %v", name, got, want)
+		}
 	}
 }

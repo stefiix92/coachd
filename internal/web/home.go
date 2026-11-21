@@ -31,7 +31,17 @@ type homePage struct {
 	Upcoming  []proposalRow
 	Goal      *goalView
 	Key       *keyView // nil without key renewal
+	Messages  []messageRow
 }
+
+// messageRow is one agent message; Text is agent-written and untrusted.
+type messageRow struct{ At, Text string }
+
+// messagesShown and messagesWindow bound the home page's Messages section.
+const (
+	messagesShown  = 5
+	messagesWindow = 7 * 24 * time.Hour
+)
 
 type proposalRow struct {
 	ID, Day, Name, Status string
@@ -98,6 +108,13 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Upcoming, err = proposalRows(upcoming); err != nil {
 			return p, err
+		}
+		msgs, err := s.d.DB.RecentMessages(ctx, s.d.Now().Add(-messagesWindow), messagesShown)
+		if err != nil {
+			return p, err
+		}
+		for _, m := range msgs {
+			p.Messages = append(p.Messages, messageRow{At: m.CreatedAt.In(s.d.TZ).Format(auditLayout), Text: m.Text})
 		}
 		g, err := s.d.DB.ActiveGoal(ctx)
 		if errors.Is(err, store.ErrNotFound) {

@@ -55,3 +55,31 @@ func TestSendMessageNeedsWriteScope(t *testing.T) {
 		t.Fatalf("stored %+v %v", got, err)
 	}
 }
+
+type countNotifier struct{ n int }
+
+func (c *countNotifier) AgentMessage() { c.n++ }
+
+func TestSendMessageNotifies(t *testing.T) {
+	n := &countNotifier{}
+	e := newEnv(t, fullIdentity(), func(d *Deps) { d.Messages = n })
+	if r := e.call(t, "send_message", map[string]any{"text": "easy today"}); r.isError {
+		t.Fatalf("valid call failed: %+v", r)
+	}
+	if n.n != 1 {
+		t.Fatalf("notified %d times after a valid call, want 1", n.n)
+	}
+	if r := e.call(t, "send_message", map[string]any{"text": ""}); !r.isError {
+		t.Fatalf("empty text accepted: %+v", r)
+	}
+	if n.n != 1 {
+		t.Errorf("notified %d times after an invalid call, want 1", n.n)
+	}
+}
+
+func TestSendMessageNilNotifier(t *testing.T) {
+	e := newEnv(t, fullIdentity())
+	if r := e.call(t, "send_message", map[string]any{"text": "hi"}); r.isError {
+		t.Fatalf("call without a notifier failed: %+v", r)
+	}
+}

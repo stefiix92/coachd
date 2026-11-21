@@ -17,8 +17,9 @@ const maxMessageRunes = 300
 func (s *svc) registerMessages(srv *mcp.Server) {
 	addTool(s, srv, &mcp.Tool{Name: "send_message", Annotations: writeAnnotations(false), Description: "Send the " +
 		"runner a short message, shown on their watch by coachd's watch app the next time it checks (within about " +
-		"15 minutes when its background checks are on) and sent nowhere else. text is 1 to 300 characters: keep it " +
-		"short enough to read at a glance. A message is display-only: it cannot carry, start or change a workout. " +
+		"15 minutes when its background checks are on), and on coachd's page; " +
+		"when coachd has ntfy configured the runner also gets a push that says only that a message waits, at most one " +
+		"per 15 minutes. text is 1 to 300 characters: keep it short enough to read at a glance. A message is display-only: it cannot carry, start or change a workout. " +
 		"coachd keeps the newest 20 and the watch shows those from the last 7 days." + localWrite + descSuffix},
 		auth.ScopeWrite, s.sendMessage)
 }
@@ -48,6 +49,9 @@ func (s *svc) sendMessage(ctx context.Context, in sendMessageInput) (sendMessage
 	m, err := s.DB.InsertMessage(ctx, store.Message{Text: in.Text, CreatedBy: agentCreator(id), CreatedAt: s.Now().UTC()})
 	if err != nil {
 		return sendMessageOut{}, err
+	}
+	if s.Messages != nil {
+		s.Messages.AgentMessage()
 	}
 	return sendMessageOut{Message: messageOut{ID: m.ID, Text: m.Text, CreatedAt: s.ts(m.CreatedAt)}}, nil
 }

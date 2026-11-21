@@ -20,7 +20,7 @@ import (
 // AllowedKeys is the only set of attribute/label/log keys permitted in telemetry.
 var AllowedKeys = []string{"lane", "tool", "outcome", "data_type", "endpoint", "status_class", "reason", "client",
 	"activity_id", "calendar_date", "count", "duration_ms", "attempt", "retry_after_s", "error", "error_class",
-	"component", "request_id", "version", "addr", "proposal_id", "status", "device_id", "format",
+	"component", "request_id", "version", "addr", "proposal_id", "status", "device_id", "format", "event",
 	"http.request.method", "http.response.status_code", "http.route", "network.protocol.version", "server.address"}
 
 const maxErrorLen = 500

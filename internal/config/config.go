@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,10 +45,19 @@ type Config struct {
 	// activity is stored; WebhookToken, from COACHD_WEBHOOK_TOKEN_FILE, is
 	// its optional bearer token. Both are secrets: never logged.
 	WebhookURL, WebhookToken string
+	// WebhookEvents (COACHD_WEBHOOK_EVENTS, comma separated) lists the events
+	// the webhook receives; default activity.stored, empty without a URL.
+	WebhookEvents []string
+	// Nudges (COACHD_NUDGES=true) lets coachd push fixed-text ntfy nudges for
+	// proactive events; needs ntfy.
+	Nudges bool
 	// Demo (COACHD_DEMO=true) makes serve ingest synthetic data instead of
 	// calling Garmin, so coachd can be tried without a Garmin key.
 	Demo bool
 }
+
+// webhookEventNames are the events COACHD_WEBHOOK_EVENTS accepts.
+var webhookEventNames = []string{"activity.stored", "health.day_ready", "workout.unmatched", "week.closed"}
 
 // PublicAuth selects how the public listener authenticates requests.
 type PublicAuth string
@@ -182,6 +192,32 @@ func Load(getenv func(string) string) (*Config, error) {
 		if c.WebhookToken, err = ReadSecretFile(p); err != nil {
 			return nil, fmt.Errorf("COACHD_WEBHOOK_TOKEN_FILE: %w", err)
 		}
+	}
+	if v := strings.TrimSpace(getenv("COACHD_WEBHOOK_EVENTS")); v != "" {
+		if c.WebhookURL == "" {
+			return nil, fmt.Errorf("COACHD_WEBHOOK_EVENTS requires COACHD_WEBHOOK_URL")
+		}
+		for _, name := range strings.Split(v, ",") {
+			name = strings.TrimSpace(name)
+			if !slices.Contains(webhookEventNames, name) {
+				return nil, fmt.Errorf("COACHD_WEBHOOK_EVENTS: unknown event %q", name)
+			}
+			if !slices.Contains(c.WebhookEvents, name) {
+				c.WebhookEvents = append(c.WebhookEvents, name)
+			}
+		}
+	} else if c.WebhookURL != "" {
+		c.WebhookEvents = []string{"activity.stored"}
+	}
+	if v := strings.TrimSpace(getenv("COACHD_NUDGES")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("COACHD_NUDGES: must be true or false")
+		}
+		if b && c.NtfyURL == "" {
+			return nil, fmt.Errorf("COACHD_NUDGES requires COACHD_NTFY_URL")
+		}
+		c.Nudges = b
 	}
 
 	// Intervals must be positive (time.NewTicker panics otherwise); a delay may be zero.

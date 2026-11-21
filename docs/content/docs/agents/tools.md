@@ -46,9 +46,9 @@ To change a proposal, the agent proposes a new one with `replaces` set to its id
 
 | Tool | Kind | What it does |
 |---|---|---|
-| `send_message` | write | Store a message of up to 300 characters for the watch app. |
+| `send_message` | write | Store a message of up to 300 characters, shown on the watch app and on coachd's page. |
 
-The watch app shows it and, with background checks on, notifies you within about 15 minutes. A message is display-only: it cannot carry, start or change a workout, and it is sent nowhere else (not to ntfy). coachd keeps the newest 20; the watch shows those from the last 7 days.
+The watch app shows it and, with background checks on, notifies you within about 15 minutes. The page lists the newest 5 from the last 7 days under **Messages**, marked as written by an agent. With [ntfy](/docs/install/notifications/#ntfy) configured you also get a push that says only "Your agent left a message", with a link to the page; the text never goes to ntfy. At most one such push goes out per 15 minutes: a message inside that window is stored and shown but not pushed. A message is display-only: it cannot carry, start or change a workout. coachd keeps the newest 20; the watch shows those from the last 7 days.
 
 ## Untrusted text
 

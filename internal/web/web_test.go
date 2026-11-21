@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -679,5 +680,65 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	body := ts.do(t, "GET", "/notes", nil, c).Body.String()
 	if !strings.Contains(body, `<a href="/notes" aria-current="page">`) || strings.Count(body, `aria-current="page"`) != 1 {
 		t.Errorf("notes page must mark its own tab, and only it: %s", body)
+	}
+}
+
+func TestHomeShowsMessages(t *testing.T) {
+	ts := newTestServer(t)
+	ctx := context.Background()
+	add := func(text string, at time.Time) {
+		t.Helper()
+		if _, err := ts.db.InsertMessage(ctx, store.Message{Text: text, CreatedBy: "agent:private:claude", CreatedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("msg-old", t0.AddDate(0, 0, -8))
+	for i := 1; i <= 6; i++ {
+		add(fmt.Sprintf("msg-%d", i), t0.Add(-time.Duration(7-i)*time.Hour))
+	}
+	body := ts.do(t, "GET", "/", nil, nil).Body.String()
+	if !strings.Contains(body, "Messages") || !strings.Contains(body, "Written by your agent") {
+		t.Errorf("home lacks the Messages section")
+	}
+	prev := -1
+	for i := 6; i >= 2; i-- {
+		at := strings.Index(body, fmt.Sprintf("msg-%d<", i))
+		if at < 0 || at < prev {
+			t.Fatalf("msg-%d missing or out of order (at %d after %d)", i, at, prev)
+		}
+		prev = at
+	}
+	for _, gone := range []string{"msg-1<", "msg-old"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("home shows %q", gone)
+		}
+	}
+	// t0 is 09:00 UTC; msg-6 is one hour earlier: 08:00 UTC = 10:00 local.
+	if !strings.Contains(body, "2026-10-23 10:00:00") {
+		t.Errorf("home lacks the newest message time in the runner's timezone")
+	}
+}
+
+func TestHomeEscapesMessage(t *testing.T) {
+	ts := newTestServer(t)
+	if _, err := ts.db.InsertMessage(context.Background(), store.Message{
+		Text: `<script>alert(1)</script> <a href="javascript:x">y</a>`, CreatedBy: "agent:private:claude", CreatedAt: t0}); err != nil {
+		t.Fatal(err)
+	}
+	body := ts.do(t, "GET", "/", nil, nil).Body.String()
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Errorf("home lacks the escaped text")
+	}
+	for _, raw := range []string{"<script>alert", `href="javascript:`} {
+		if strings.Contains(body, raw) {
+			t.Errorf("home contains unescaped %q", raw)
+		}
+	}
+}
+
+func TestHomeNoMessagesNoSection(t *testing.T) {
+	ts := newTestServer(t)
+	if body := ts.do(t, "GET", "/", nil, nil).Body.String(); strings.Contains(body, "Messages") {
+		t.Errorf("home has a Messages heading without messages")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,7 @@ import (
 	"github.com/stefiix92/coachd/internal/outcome"
 	"github.com/stefiix92/coachd/internal/store"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 )
 
 // EventActivityStored is the event of an activity coachd just stored.
@@ -32,47 +34,116 @@ type Event struct {
 	ProposalID *string `json:"proposal_id"` // the delivered workout it carried out, or null
 }
 
+var _ triggers.Sink = (*Webhook)(nil)
+
+// dayEvent is the body of a day, workout or week event: an event name, a
+// date and, for workout.unmatched, the proposal ID. Nothing else.
+type dayEvent struct {
+	Event      string `json:"event"`
+	Date       string `json:"date"`
+	ProposalID string `json:"proposal_id,omitempty"`
+}
+
+// hookItem is one queued delivery: the marshalled body plus the keys its
+// span and log lines carry.
+type hookItem struct {
+	body       []byte
+	event      string
+	activityID int64  // activity.stored only
+	proposalID string // day events: the proposal, when present
+}
+
 // Webhook posts an Event to the runner's own automation (n8n, Home
-// Assistant, an agent's trigger) when a recent activity is stored, so a
-// post-run review can start without waiting for the next chat. The URL and
+// Assistant, an agent's trigger) when a recent activity is stored or a day,
+// workout or week event fires, so a review can start without waiting for the
+// next chat. Only the events it was configured with are sent. The URL and
 // token are secrets and are never logged.
 type Webhook struct {
 	url, token string
+	events     []string
 	db         *store.DB
 	client     *http.Client
 	m          *telemetry.Metrics
 	log        *slog.Logger
 	tracer     trace.Tracer
-	queue      chan Event
+	queue      chan hookItem
 	sleep      func(ctx context.Context, d time.Duration) error
 }
 
-// NewWebhook posts to url with token as a bearer token (may be empty). db
-// links activities to proposals.
-func NewWebhook(url, token string, db *store.DB, client *http.Client,
+// NewWebhook posts to url with token as a bearer token (may be empty). Only
+// the named events are sent. db links activities to proposals.
+func NewWebhook(url, token string, events []string, db *store.DB, client *http.Client,
 	m *telemetry.Metrics, log *slog.Logger, tracer trace.Tracer) *Webhook {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Webhook{url: url, token: token, db: db, client: client, m: m, log: log, tracer: tracer,
-		queue: make(chan Event, queueSize), sleep: sleepCtx}
+	return &Webhook{url: url, token: token, events: events, db: db, client: client, m: m, log: log, tracer: tracer,
+		queue: make(chan hookItem, queueSize), sleep: sleepCtx}
 }
 
 // ActivityStored enqueues the event of a: its link to a delivered proposal
 // is looked up from the stored detail, and none when that fails. It never
-// blocks; a full queue drops the event.
+// blocks; a full queue drops the event. It sends nothing unless activity.stored
+// is among the configured events.
 func (w *Webhook) ActivityStored(ctx context.Context, a store.Activity) {
+	if !slices.Contains(w.events, EventActivityStored) {
+		return
+	}
 	ev := Event{Event: EventActivityStored, ActivityID: a.ID, Date: a.Date.String(), Sport: string(a.Sport)}
 	if d, err := w.db.GetActivityDetail(ctx, a.ID); err == nil && d.Workout != nil {
 		ev.ProposalID, _ = outcome.Linker{DB: w.db}.ProposalFor(ctx,
 			store.ActivityWorkout{ID: a.ID, Date: a.Date, Fingerprint: d.Workout.Fingerprint})
 	}
+	// Marshalling a struct of strings and integers cannot fail.
+	body, _ := json.Marshal(ev)
+	w.enqueue(ctx, hookItem{body: body, event: EventActivityStored, activityID: a.ID})
+}
+
+// Wants reports whether name is a day, workout or week event among the
+// configured events. The activity event is not one: ingest hands it over
+// through ActivityStored.
+func (w *Webhook) Wants(name string) bool {
+	switch name {
+	case triggers.HealthDayReady, triggers.WorkoutUnmatched, triggers.WeekClosed:
+		return slices.Contains(w.events, name)
+	}
+	return false
+}
+
+// Fire enqueues a day, workout or week event the webhook wants; it never
+// blocks. A full queue drops the event. Other names, the activity event
+// included, send nothing here.
+func (w *Webhook) Fire(ctx context.Context, ev triggers.Event) {
+	if !w.Wants(ev.Name) {
+		return
+	}
+	// Marshalling a struct of strings cannot fail.
+	body, _ := json.Marshal(dayEvent{Event: ev.Name, Date: ev.Date.String(), ProposalID: ev.ProposalID})
+	w.enqueue(ctx, hookItem{body: body, event: ev.Name, proposalID: ev.ProposalID})
+}
+
+func (w *Webhook) enqueue(ctx context.Context, it hookItem) {
 	select {
-	case w.queue <- ev:
+	case w.queue <- it:
 	default:
 		w.count(ctx, "dropped")
-		w.log.Warn("webhook event dropped", "component", "notify", "activity_id", a.ID, "outcome", "dropped")
+		w.log.Warn("webhook event dropped", it.logAttrs("outcome", "dropped")...)
 	}
+}
+
+// logAttrs is the component, the item's ID keys and kv. Activity events log
+// activity_id, as they always have; day events log event and proposal_id.
+func (it hookItem) logAttrs(kv ...any) []any {
+	attrs := []any{"component", "notify"}
+	if it.event == EventActivityStored {
+		attrs = append(attrs, "activity_id", it.activityID)
+	} else {
+		attrs = append(attrs, "event", it.event)
+		if it.proposalID != "" {
+			attrs = append(attrs, "proposal_id", it.proposalID)
+		}
+	}
+	return append(attrs, kv...)
 }
 
 func (w *Webhook) count(ctx context.Context, outcome string) {
@@ -87,17 +158,28 @@ func (w *Webhook) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case ev := <-w.queue:
-			w.deliver(ctx, ev)
+		case it := <-w.queue:
+			w.deliver(ctx, it)
 		}
 	}
 }
 
-func (w *Webhook) deliver(ctx context.Context, ev Event) {
-	ctx, span := w.tracer.Start(ctx, "activity.webhook")
+func (w *Webhook) deliver(ctx context.Context, it hookItem) {
+	spanName := "event.webhook"
+	if it.event == EventActivityStored {
+		spanName = "activity.webhook"
+	}
+	ctx, span := w.tracer.Start(ctx, spanName)
 	defer span.End()
-	span.SetAttributes(attribute.Int64("activity_id", ev.ActivityID))
-	outcome, status, errClass := retry(ctx, w.sleep, func(ctx context.Context) (int, string) { return w.send(ctx, ev) })
+	if it.event == EventActivityStored {
+		span.SetAttributes(attribute.Int64("activity_id", it.activityID))
+	} else {
+		span.SetAttributes(attribute.String("event", it.event))
+		if it.proposalID != "" {
+			span.SetAttributes(attribute.String("proposal_id", it.proposalID))
+		}
+	}
+	outcome, status, errClass := retry(ctx, w.sleep, func(ctx context.Context) (int, string) { return w.send(ctx, it.body) })
 	if outcome == "" {
 		return
 	}
@@ -110,18 +192,14 @@ func (w *Webhook) deliver(ctx context.Context, ev Event) {
 	if errClass == "" {
 		errClass = "none"
 	}
-	w.log.Warn("webhook event failed", "component", "notify", "activity_id", ev.ActivityID, "outcome", outcome,
-		"status_class", statusClass(status), "error_class", errClass)
+	w.log.Warn("webhook event failed", it.logAttrs("outcome", outcome,
+		"status_class", statusClass(status), "error_class", errClass)...)
 }
 
 // send makes one attempt, as Ntfy.send does.
-func (w *Webhook) send(ctx context.Context, ev Event) (int, string) {
+func (w *Webhook) send(ctx context.Context, body []byte) (int, string) {
 	actx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
-	body, err := json.Marshal(ev)
-	if err != nil {
-		return 0, fmt.Sprintf("%T", err)
-	}
 	req, err := http.NewRequestWithContext(actx, http.MethodPost, w.url, bytes.NewReader(body))
 	if err != nil {
 		return 0, fmt.Sprintf("%T", err)

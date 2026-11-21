@@ -1,7 +1,10 @@
-// Package notify tells the runner about new pending proposals, and in
-// builtin auth mode about app connections, through ntfy. A proposal notice
+// Package notify tells the runner about new pending proposals, app
+// connections (builtin auth mode), day, workout and week nudges and agent
+// messages through ntfy, and posts events to a webhook. A proposal notice
 // carries only a date and a link: no workout name, metrics or health data. A
-// connection notice is a fixed text and a link to /apps: no client name. The
+// connection notice is a fixed text and a link to /apps: no client name. A
+// nudge or message push is a fixed text and a link to the page: no health
+// value and no agent text. The
 // topic URL and token are secrets and are never logged.
 package notify
 
@@ -11,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -20,6 +24,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 )
 
 const (
@@ -37,13 +42,18 @@ const (
 	kindProposal noticeKind = iota
 	kindAppConnected
 	kindConnectionRevoked
+	kindDayReady
+	kindWorkoutUnmatched
+	kindWeekClosed
+	kindAgentMessage
 )
 
 type notice struct {
-	kind noticeKind
-	id   string // proposal notices only
-	date civil.Date
-	link trace.SpanContext
+	kind  noticeKind
+	id    string // the proposal ID: proposal notices and workout.unmatched nudges
+	event string // nudges only: the event name (never set for the message push)
+	date  civil.Date
+	link  trace.SpanContext
 }
 
 // Connection notice texts (spec §9, M14). They never name the client.
@@ -52,8 +62,22 @@ const (
 	textConnectionRevoked = "coachd revoked an app connection after a token was reused"
 )
 
-// Ntfy sends one notification per pending proposal or connection event from
-// a single worker.
+// Nudge and message push texts (proactive spec §5, §6). They carry no health
+// value, name or agent text.
+const (
+	textDayReady         = "Last night's sleep data is in"
+	textWorkoutUnmatched = "Yesterday's workout has no matching activity"
+	textWeekClosed       = "Last week's numbers are complete"
+	textAgentMessage     = "Your agent left a message"
+)
+
+// messageInterval is the least time between two agent-message pushes.
+const messageInterval = 15 * time.Minute
+
+var _ triggers.Sink = (*Ntfy)(nil)
+
+// Ntfy sends one notification per pending proposal, connection event, nudge
+// or (rate-limited) agent message from a single worker.
 type Ntfy struct {
 	topicURL, token, publicURL string
 	client                     *http.Client
@@ -62,6 +86,9 @@ type Ntfy struct {
 	tracer                     trace.Tracer
 	queue                      chan notice
 	sleep                      func(ctx context.Context, d time.Duration) error
+	now                        func() time.Time
+	mu                         sync.Mutex
+	lastMessage                time.Time // the last message push enqueued
 }
 
 // NewNtfy sends to topicURL (the full topic URL). token may be empty.
@@ -74,7 +101,7 @@ func NewNtfy(topicURL, token, publicURL string, client *http.Client,
 		topicURL: topicURL, token: token, publicURL: strings.TrimRight(publicURL, "/"),
 		client: client, m: m, log: log, tracer: tracer,
 		queue: make(chan notice, queueSize),
-		sleep: sleepCtx,
+		sleep: sleepCtx, now: time.Now,
 	}
 }
 
@@ -109,21 +136,74 @@ func (n *Ntfy) AppConnected() { n.enqueue(notice{kind: kindAppConnected}) }
 // was reused"; it never blocks. A full queue drops it.
 func (n *Ntfy) ConnectionRevoked() { n.enqueue(notice{kind: kindConnectionRevoked}) }
 
-// enqueue queues nt without blocking; a full queue drops and counts it.
-func (n *Ntfy) enqueue(nt notice) {
-	select {
-	case n.queue <- nt:
+// Wants reports whether name is a day, workout or week event: each has a
+// nudge. Ntfy is a triggers sink only when nudges are on.
+func (n *Ntfy) Wants(name string) bool {
+	switch name {
+	case triggers.HealthDayReady, triggers.WorkoutUnmatched, triggers.WeekClosed:
+		return true
+	}
+	return false
+}
+
+// Fire enqueues a nudge for a day, workout or week event; it never blocks.
+// Other events send nothing.
+func (n *Ntfy) Fire(_ context.Context, ev triggers.Event) {
+	var kind noticeKind
+	switch ev.Name {
+	case triggers.HealthDayReady:
+		kind = kindDayReady
+	case triggers.WorkoutUnmatched:
+		kind = kindWorkoutUnmatched
+	case triggers.WeekClosed:
+		kind = kindWeekClosed
 	default:
-		n.count(context.Background(), "dropped")
-		n.log.Warn("notification dropped", n.logAttrs(nt, "outcome", "dropped")...)
+		return
+	}
+	n.enqueue(notice{kind: kind, event: ev.Name, id: ev.ProposalID})
+}
+
+// AgentMessage enqueues "your agent left a message", at most once per 15
+// minutes counted from the last push enqueued; a message inside the window is
+// not pushed. A push dropped by a full queue does not start the window. It
+// never blocks.
+func (n *Ntfy) AgentMessage() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	now := n.now()
+	if !n.lastMessage.IsZero() && now.Sub(n.lastMessage) < messageInterval {
+		return
+	}
+	if n.enqueue(notice{kind: kindAgentMessage}) {
+		n.lastMessage = now
 	}
 }
 
-// logAttrs is the component, the proposal id (proposal notices only) and kv.
+// enqueue queues nt without blocking and reports whether it was queued; a
+// full queue drops and counts it.
+func (n *Ntfy) enqueue(nt notice) bool {
+	select {
+	case n.queue <- nt:
+		return true
+	default:
+		n.count(context.Background(), "dropped")
+		n.log.Warn("notification dropped", n.logAttrs(nt, "outcome", "dropped")...)
+		return false
+	}
+}
+
+// logAttrs is the component, the proposal id (proposal notices), the event
+// and proposal id (nudges) and kv.
 func (n *Ntfy) logAttrs(nt notice, kv ...any) []any {
 	attrs := []any{"component", "notify"}
 	if nt.kind == kindProposal {
 		attrs = append(attrs, "proposal_id", nt.id)
+	}
+	if nt.kind == kindDayReady || nt.kind == kindWorkoutUnmatched || nt.kind == kindWeekClosed {
+		attrs = append(attrs, "event", nt.event)
+		if nt.id != "" {
+			attrs = append(attrs, "proposal_id", nt.id)
+		}
 	}
 	return append(attrs, kv...)
 }
@@ -146,13 +226,22 @@ func (n *Ntfy) deliver(ctx context.Context, nt notice) {
 		opts = append(opts, trace.WithLinks(trace.Link{SpanContext: nt.link}))
 	}
 	name := "proposal.notify"
-	if nt.kind != kindProposal {
+	switch nt.kind {
+	case kindAppConnected, kindConnectionRevoked:
 		name = "connection.notify"
+	case kindDayReady, kindWorkoutUnmatched, kindWeekClosed, kindAgentMessage:
+		name = "event.notify"
 	}
 	ctx, span := n.tracer.Start(ctx, name, opts...)
 	defer span.End()
 	if nt.kind == kindProposal {
 		span.SetAttributes(attribute.String("proposal_id", nt.id))
+	}
+	if nt.kind == kindDayReady || nt.kind == kindWorkoutUnmatched || nt.kind == kindWeekClosed {
+		span.SetAttributes(attribute.String("event", nt.event))
+		if nt.id != "" {
+			span.SetAttributes(attribute.String("proposal_id", nt.id))
+		}
 	}
 
 	outcome, status, errClass := retry(ctx, n.sleep, func(ctx context.Context) (int, string) { return n.send(ctx, nt) })
@@ -216,9 +305,22 @@ func (n *Ntfy) message(nt notice) (body, actions string) {
 		return textAppConnected, fmt.Sprintf("view, Open, %s/apps, clear=true", n.publicURL)
 	case kindConnectionRevoked:
 		return textConnectionRevoked, fmt.Sprintf("view, Open, %s/apps, clear=true", n.publicURL)
+	case kindDayReady:
+		return textDayReady, n.homeAction()
+	case kindWorkoutUnmatched:
+		return textWorkoutUnmatched, n.homeAction()
+	case kindWeekClosed:
+		return textWeekClosed, n.homeAction()
+	case kindAgentMessage:
+		return textAgentMessage, n.homeAction()
 	}
 	return fmt.Sprintf("Workout for %s ready to review", time.Date(nt.date.Year, nt.date.Month, nt.date.Day, 0, 0, 0, 0, time.UTC).Format("Mon 2 Jan")),
 		fmt.Sprintf("view, Review, %s/p/%s, clear=true", n.publicURL, nt.id)
+}
+
+// homeAction is the Actions header linking to the page.
+func (n *Ntfy) homeAction() string {
+	return fmt.Sprintf("view, Open, %s/, clear=true", n.publicURL)
 }
 
 // send makes one attempt. It returns the HTTP status (0 on a network error)

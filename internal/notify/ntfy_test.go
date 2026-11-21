@@ -24,6 +24,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 )
 
 type rig struct {
@@ -46,6 +47,18 @@ func newRig(t *testing.T, url, token string) *rig {
 	n := NewNtfy(url, token, "https://coachd.example", http.DefaultClient, m,
 		slog.New(slog.NewJSONHandler(logs, nil)), sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)).Tracer("notify"))
 	n.sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
+	t.Cleanup(func() {
+		if url != "" && strings.Contains(logs.String(), url) || token != "" && strings.Contains(logs.String(), token) {
+			t.Error("a log line holds the ntfy URL or token")
+		}
+		for _, s := range spans.Ended() {
+			for _, kv := range s.Attributes() {
+				if !slices.Contains(telemetry.AllowedKeys, string(kv.Key)) {
+					t.Errorf("span attribute %q is not allowlisted", kv.Key)
+				}
+			}
+		}
+	})
 	return &rig{n: n, reader: r, logs: logs, spans: spans}
 }
 
@@ -345,5 +358,190 @@ func TestNtfyAppNoticesDoNotBlock(t *testing.T) {
 	}
 	if strings.Contains(r.logs.String(), "proposal_id") {
 		t.Errorf("dropped app notice logged a proposal id: %s", r.logs)
+	}
+}
+
+// ntfyCapture records each request an httptest ntfy topic receives.
+type ntfyCapture struct {
+	mu      sync.Mutex
+	bodies  []string
+	actions []string
+	headers []http.Header
+}
+
+func (c *ntfyCapture) handler(w http.ResponseWriter, req *http.Request) {
+	b, _ := io.ReadAll(req.Body)
+	c.mu.Lock()
+	c.bodies = append(c.bodies, string(b))
+	c.actions = append(c.actions, req.Header.Get("Actions"))
+	c.headers = append(c.headers, req.Header.Clone())
+	c.mu.Unlock()
+}
+
+func (c *ntfyCapture) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.bodies)
+}
+
+func TestNtfyNudgeTexts(t *testing.T) {
+	for _, tc := range []struct{ event, text string }{
+		{triggers.HealthDayReady, "Last night's sleep data is in"},
+		{triggers.WorkoutUnmatched, "Yesterday's workout has no matching activity"},
+		{triggers.WeekClosed, "Last week's numbers are complete"},
+	} {
+		c := &ntfyCapture{}
+		srv := httptest.NewServer(http.HandlerFunc(c.handler))
+		r := newRig(t, srv.URL, "")
+		r.n.Fire(context.Background(), triggers.Event{Name: tc.event, Date: d20261028, ProposalID: "p_1"})
+		runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+		srv.Close()
+		if len(c.bodies) != 1 || c.bodies[0] != tc.text {
+			t.Errorf("%s: bodies %q, want %q", tc.event, c.bodies, tc.text)
+			continue
+		}
+		if want := "view, Open, https://coachd.example/, clear=true"; c.actions[0] != want {
+			t.Errorf("%s: Actions %q, want %q", tc.event, c.actions[0], want)
+		}
+	}
+}
+
+func TestNtfyFireIgnoresOtherEvents(t *testing.T) {
+	r := newRig(t, "http://127.0.0.1:1", "")
+	r.n.Fire(context.Background(), triggers.Event{Name: "activity.stored"})
+	if len(r.n.queue) != 0 {
+		t.Fatal("an unknown event was queued")
+	}
+}
+
+func TestNtfyAgentMessageText(t *testing.T) {
+	c := &ntfyCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(c.handler))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	r.n.AgentMessage()
+	runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+	if len(c.bodies) != 1 || c.bodies[0] != "Your agent left a message" {
+		t.Fatalf("bodies %q", c.bodies)
+	}
+	if want := "view, Open, https://coachd.example/, clear=true"; c.actions[0] != want {
+		t.Fatalf("Actions %q", c.actions[0])
+	}
+	// The request holds no other text: only the fixed title, the link and
+	// the standard transport headers.
+	for k := range c.headers[0] {
+		switch k {
+		case "Title", "Actions", "Content-Length", "User-Agent", "Accept-Encoding":
+		default:
+			t.Errorf("unexpected header %q", k)
+		}
+	}
+}
+
+func TestNtfyAgentMessageLimit(t *testing.T) {
+	c := &ntfyCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(c.handler))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	t0 := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	now := t0
+	r.n.now = func() time.Time { return now }
+	for i := 0; i < 10; i++ {
+		r.n.AgentMessage()
+	}
+	now = t0.Add(14*time.Minute + 59*time.Second)
+	r.n.AgentMessage()
+	if len(r.n.queue) != 1 {
+		t.Fatalf("queued %d, want 1 inside the window", len(r.n.queue))
+	}
+	now = t0.Add(15 * time.Minute)
+	r.n.AgentMessage()
+	if len(r.n.queue) != 2 {
+		t.Fatalf("queued %d, want 2 at the window's end", len(r.n.queue))
+	}
+	runUntil(t, r.n, func() bool { return c.count() == 2 })
+	if got := c.count(); got != 2 {
+		t.Fatalf("requests %d, want 2", got)
+	}
+	if got := r.outcomes(t); got["dropped"] != 0 {
+		t.Fatalf("outcomes %v: a limited push is not a drop", got)
+	}
+}
+
+func spanAttrs(t *testing.T, r *rig, name string) map[string]string {
+	t.Helper()
+	for _, s := range r.spans.Ended() {
+		if s.Name() != name {
+			continue
+		}
+		got := map[string]string{}
+		for _, kv := range s.Attributes() {
+			got[string(kv.Key)] = kv.Value.String()
+		}
+		return got
+	}
+	t.Fatalf("no %s span", name)
+	return nil
+}
+
+func TestNtfyEventNotifySpanAttributes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	r.n.Fire(context.Background(), triggers.Event{Name: triggers.WorkoutUnmatched, Date: d20261028, ProposalID: "p_1"})
+	runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+	got := spanAttrs(t, r, "event.notify")
+	want := map[string]string{"event": "workout.unmatched", "proposal_id": "p_1", "outcome": "sent"}
+	if len(got) != len(want) {
+		t.Fatalf("attributes %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("attributes %v, want %v", got, want)
+		}
+	}
+}
+
+func TestNtfyAgentMessageSpanHasNoEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	r.n.AgentMessage()
+	runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+	got := spanAttrs(t, r, "event.notify")
+	if len(got) != 1 || got["outcome"] != "sent" {
+		t.Fatalf("attributes %v, want only outcome=sent", got)
+	}
+}
+
+// A message push dropped by a full queue does not start the 15-minute window.
+func TestNtfyAgentMessageDropDoesNotStartWindow(t *testing.T) {
+	r := newRig(t, "http://127.0.0.1:1", "")
+	t0 := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	r.n.now = func() time.Time { return t0 }
+	for i := 0; i < queueSize; i++ {
+		r.n.AppConnected() // fill the queue; no worker runs
+	}
+	r.n.AgentMessage()
+	if !r.n.lastMessage.IsZero() {
+		t.Fatal("a dropped message push started the window")
+	}
+	<-r.n.queue // room again
+	r.n.AgentMessage()
+	if r.n.lastMessage.IsZero() {
+		t.Fatal("an enqueued message push did not start the window")
+	}
+}
+
+// Ntfy wants the three nudge events and nothing else.
+func TestNtfyWants(t *testing.T) {
+	r := newRig(t, "http://127.0.0.1:1", "")
+	for name, want := range map[string]bool{
+		triggers.HealthDayReady: true, triggers.WorkoutUnmatched: true, triggers.WeekClosed: true,
+		"activity.stored": false, "other": false,
+	} {
+		if got := r.n.Wants(name); got != want {
+			t.Errorf("Wants(%q) = %v, want %v", name, got, want)
+		}
 	}
 }

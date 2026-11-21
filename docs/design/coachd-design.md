@@ -57,7 +57,7 @@ All training evaluation, coaching and planning happens in the AI agent. The runn
 - Coaching logic: readiness verdicts, plan generation, intensity decisions, hard training blocks. [owner]
 - Weather. The agent fetches it itself. [call]
 - coachd's own chat UI, its own LLM, or any LLM API keys. [owner]
-- Starting the morning conversation. Claude Duet does this. [owner] (2026-10-25: an optional post-run webhook with IDs only tells the runner's own automation that an activity arrived; coachd still starts nothing itself, `post-run-webhook.md`.)
+- Starting the morning conversation. Claude Duet does this. [owner] (2026-10-25: an optional post-run webhook with IDs only tells the runner's own automation that an activity arrived; coachd still starts nothing itself, `post-run-webhook.md`.) (2026-11-21: coachd now also says when there is something to talk about, with webhook events for a ready day, an unmatched workout and a closed week, optional fixed-text ntfy nudges, and a push for an agent message; it still starts no conversation and writes no text, `proactive.md`.)
 - Storing check-ins (feel, RPE) as structured data. They live in the agent's conversation, and the agent can write durable facts into notes. [call]
 - Multi-user or hosted operation.
 - Pushing completed activities into Garmin, gear tracking, medical or nutrition advice.
