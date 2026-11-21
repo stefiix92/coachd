@@ -1,7 +1,10 @@
-// Package notify tells the runner about new pending proposals, and in
-// builtin auth mode about app connections, through ntfy. A proposal notice
+// Package notify tells the runner about new pending proposals, app
+// connections (builtin auth mode), day, workout and week nudges and agent
+// messages through ntfy, and posts events to a webhook. A proposal notice
 // carries only a date and a link: no workout name, metrics or health data. A
-// connection notice is a fixed text and a link to /apps: no client name. The
+// connection notice is a fixed text and a link to /apps: no client name. A
+// nudge or message push is a fixed text and a link to the page: no health
+// value and no agent text. The
 // topic URL and token are secrets and are never logged.
 package notify
 
@@ -48,7 +51,7 @@ const (
 type notice struct {
 	kind  noticeKind
 	id    string // proposal notices only
-	event string // nudges only: the event name
+	event string // nudges only: the event name (never set for the message push)
 	date  civil.Date
 	link  trace.SpanContext
 }
@@ -71,8 +74,10 @@ const (
 // messageInterval is the least time between two agent-message pushes.
 const messageInterval = 15 * time.Minute
 
-// Ntfy sends one notification per pending proposal or connection event from
-// a single worker.
+var _ triggers.Sink = (*Ntfy)(nil)
+
+// Ntfy sends one notification per pending proposal, connection event, nudge
+// or (rate-limited) agent message from a single worker.
 type Ntfy struct {
 	topicURL, token, publicURL string
 	client                     *http.Client
@@ -134,12 +139,15 @@ func (n *Ntfy) ConnectionRevoked() { n.enqueue(notice{kind: kindConnectionRevoke
 // Fire enqueues a nudge for a day, workout or week event; it never blocks.
 // Other events send nothing.
 func (n *Ntfy) Fire(_ context.Context, ev triggers.Event) {
-	kind, ok := map[string]noticeKind{
-		triggers.HealthDayReady:   kindDayReady,
-		triggers.WorkoutUnmatched: kindWorkoutUnmatched,
-		triggers.WeekClosed:       kindWeekClosed,
-	}[ev.Name]
-	if !ok {
+	var kind noticeKind
+	switch ev.Name {
+	case triggers.HealthDayReady:
+		kind = kindDayReady
+	case triggers.WorkoutUnmatched:
+		kind = kindWorkoutUnmatched
+	case triggers.WeekClosed:
+		kind = kindWeekClosed
+	default:
 		return
 	}
 	n.enqueue(notice{kind: kind, event: ev.Name, id: ev.ProposalID})
@@ -147,30 +155,35 @@ func (n *Ntfy) Fire(_ context.Context, ev triggers.Event) {
 
 // AgentMessage enqueues "your agent left a message", at most once per 15
 // minutes counted from the last push enqueued; a message inside the window is
-// not pushed. It never blocks.
+// not pushed. A push dropped by a full queue does not start the window. It
+// never blocks.
 func (n *Ntfy) AgentMessage() {
 	n.mu.Lock()
+	defer n.mu.Unlock()
 	now := n.now()
 	if !n.lastMessage.IsZero() && now.Sub(n.lastMessage) < messageInterval {
-		n.mu.Unlock()
 		return
 	}
-	n.lastMessage = now
-	n.mu.Unlock()
-	n.enqueue(notice{kind: kindAgentMessage, event: "agent.message"})
+	if n.enqueue(notice{kind: kindAgentMessage}) {
+		n.lastMessage = now
+	}
 }
 
-// enqueue queues nt without blocking; a full queue drops and counts it.
-func (n *Ntfy) enqueue(nt notice) {
+// enqueue queues nt without blocking and reports whether it was queued; a
+// full queue drops and counts it.
+func (n *Ntfy) enqueue(nt notice) bool {
 	select {
 	case n.queue <- nt:
+		return true
 	default:
 		n.count(context.Background(), "dropped")
 		n.log.Warn("notification dropped", n.logAttrs(nt, "outcome", "dropped")...)
+		return false
 	}
 }
 
-// logAttrs is the component, the proposal id (proposal notices only) and kv.
+// logAttrs is the component, the proposal id (proposal notices), the event
+// and proposal id (nudges) and kv.
 func (n *Ntfy) logAttrs(nt notice, kv ...any) []any {
 	attrs := []any{"component", "notify"}
 	if nt.kind == kindProposal {

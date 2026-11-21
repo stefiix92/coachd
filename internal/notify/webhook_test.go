@@ -321,3 +321,12 @@ func TestWebhookDaySpanKeys(t *testing.T) {
 		t.Fatal("no event.webhook span")
 	}
 }
+
+// Fire sends day events only: the activity event has its own body.
+func TestWebhookFireIgnoresActivityEvent(t *testing.T) {
+	rig := newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", allEvents)
+	rig.w.Fire(context.Background(), triggers.Event{Name: EventActivityStored, Date: run26.Date})
+	if n := len(rig.w.queue); n != 0 {
+		t.Fatalf("queued %d, want 0", n)
+	}
+}

@@ -47,6 +47,18 @@ func newRig(t *testing.T, url, token string) *rig {
 	n := NewNtfy(url, token, "https://coachd.example", http.DefaultClient, m,
 		slog.New(slog.NewJSONHandler(logs, nil)), sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans)).Tracer("notify"))
 	n.sleep = func(ctx context.Context, d time.Duration) error { return ctx.Err() }
+	t.Cleanup(func() {
+		if url != "" && strings.Contains(logs.String(), url) || token != "" && strings.Contains(logs.String(), token) {
+			t.Error("a log line holds the ntfy URL or token")
+		}
+		for _, s := range spans.Ended() {
+			for _, kv := range s.Attributes() {
+				if !slices.Contains(telemetry.AllowedKeys, string(kv.Key)) {
+					t.Errorf("span attribute %q is not allowlisted", kv.Key)
+				}
+			}
+		}
+	})
 	return &rig{n: n, reader: r, logs: logs, spans: spans}
 }
 
@@ -453,5 +465,70 @@ func TestNtfyAgentMessageLimit(t *testing.T) {
 	}
 	if got := r.outcomes(t); got["dropped"] != 0 {
 		t.Fatalf("outcomes %v: a limited push is not a drop", got)
+	}
+}
+
+func spanAttrs(t *testing.T, r *rig, name string) map[string]string {
+	t.Helper()
+	for _, s := range r.spans.Ended() {
+		if s.Name() != name {
+			continue
+		}
+		got := map[string]string{}
+		for _, kv := range s.Attributes() {
+			got[string(kv.Key)] = kv.Value.String()
+		}
+		return got
+	}
+	t.Fatalf("no %s span", name)
+	return nil
+}
+
+func TestNtfyEventNotifySpanAttributes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	r.n.Fire(context.Background(), triggers.Event{Name: triggers.WorkoutUnmatched, Date: d20261028, ProposalID: "p_1"})
+	runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+	got := spanAttrs(t, r, "event.notify")
+	want := map[string]string{"event": "workout.unmatched", "proposal_id": "p_1", "outcome": "sent"}
+	if len(got) != len(want) {
+		t.Fatalf("attributes %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("attributes %v, want %v", got, want)
+		}
+	}
+}
+
+func TestNtfyAgentMessageSpanHasNoEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {}))
+	defer srv.Close()
+	r := newRig(t, srv.URL, "")
+	r.n.AgentMessage()
+	runUntil(t, r.n, func() bool { return r.outcomes(t)["sent"] == 1 })
+	got := spanAttrs(t, r, "event.notify")
+	if len(got) != 1 || got["outcome"] != "sent" {
+		t.Fatalf("attributes %v, want only outcome=sent", got)
+	}
+}
+
+// A message push dropped by a full queue does not start the 15-minute window.
+func TestNtfyAgentMessageDropDoesNotStartWindow(t *testing.T) {
+	r := newRig(t, "http://127.0.0.1:1", "")
+	t0 := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)
+	r.n.now = func() time.Time { return t0 }
+	for i := 0; i < queueSize; i++ {
+		r.n.AppConnected() // fill the queue; no worker runs
+	}
+	r.n.AgentMessage()
+	if !r.n.lastMessage.IsZero() {
+		t.Fatal("a dropped message push started the window")
+	}
+	<-r.n.queue // room again
+	r.n.AgentMessage()
+	if r.n.lastMessage.IsZero() {
+		t.Fatal("an enqueued message push did not start the window")
 	}
 }

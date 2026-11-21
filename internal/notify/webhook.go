@@ -34,6 +34,8 @@ type Event struct {
 	ProposalID *string `json:"proposal_id"` // the delivered workout it carried out, or null
 }
 
+var _ triggers.Sink = (*Webhook)(nil)
+
 // dayEvent is the body of a day, workout or week event: an event name, a
 // date and, for workout.unmatched, the proposal ID. Nothing else.
 type dayEvent struct {
@@ -92,23 +94,25 @@ func (w *Webhook) ActivityStored(ctx context.Context, a store.Activity) {
 		ev.ProposalID, _ = outcome.Linker{DB: w.db}.ProposalFor(ctx,
 			store.ActivityWorkout{ID: a.ID, Date: a.Date, Fingerprint: d.Workout.Fingerprint})
 	}
-	body, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
+	// Marshalling a struct of strings and integers cannot fail.
+	body, _ := json.Marshal(ev)
 	w.enqueue(ctx, hookItem{body: body, event: EventActivityStored, activityID: a.ID})
 }
 
 // Fire enqueues a day, workout or week event when it is among the configured
-// events; it never blocks. A full queue drops the event.
+// events; it never blocks. A full queue drops the event. Other names, the
+// activity event included, send nothing here.
 func (w *Webhook) Fire(ctx context.Context, ev triggers.Event) {
+	switch ev.Name {
+	case triggers.HealthDayReady, triggers.WorkoutUnmatched, triggers.WeekClosed:
+	default:
+		return
+	}
 	if !slices.Contains(w.events, ev.Name) {
 		return
 	}
-	body, err := json.Marshal(dayEvent{Event: ev.Name, Date: ev.Date.String(), ProposalID: ev.ProposalID})
-	if err != nil {
-		return
-	}
+	// Marshalling a struct of strings cannot fail.
+	body, _ := json.Marshal(dayEvent{Event: ev.Name, Date: ev.Date.String(), ProposalID: ev.ProposalID})
 	w.enqueue(ctx, hookItem{body: body, event: ev.Name, proposalID: ev.ProposalID})
 }
 
@@ -125,7 +129,7 @@ func (w *Webhook) enqueue(ctx context.Context, it hookItem) {
 // activity_id, as they always have; day events log event and proposal_id.
 func (it hookItem) logAttrs(kv ...any) []any {
 	attrs := []any{"component", "notify"}
-	if it.activityID != 0 {
+	if it.event == EventActivityStored {
 		attrs = append(attrs, "activity_id", it.activityID)
 	} else {
 		attrs = append(attrs, "event", it.event)
@@ -156,12 +160,12 @@ func (w *Webhook) Run(ctx context.Context) {
 
 func (w *Webhook) deliver(ctx context.Context, it hookItem) {
 	spanName := "event.webhook"
-	if it.activityID != 0 {
+	if it.event == EventActivityStored {
 		spanName = "activity.webhook"
 	}
 	ctx, span := w.tracer.Start(ctx, spanName)
 	defer span.End()
-	if it.activityID != 0 {
+	if it.event == EventActivityStored {
 		span.SetAttributes(attribute.Int64("activity_id", it.activityID))
 	} else {
 		span.SetAttributes(attribute.String("event", it.event))
