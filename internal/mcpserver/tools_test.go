@@ -722,6 +722,8 @@ func TestGetActivityNegativeID(t *testing.T) {
 	ctx := context.Background()
 	ride := testActivity(t, -55751783, "2026-10-21", "MyWhoosh ride")
 	ride.Sport, ride.TypeKey, ride.Source, ride.SourceID = store.SportCycling, "VirtualRide", store.SourceIntervals, "i55751783"
+	ride.AvgPowerW = fp(154.6)
+	ride.Intervals = store.ActivityIntervals{TrainingLoad: fp(41), NormalizedPowerW: fp(162.6), IntensityFactor: fp(0.652)}
 	run := testActivity(t, 1, "2026-10-20", "run")
 	run.Garmin = store.ActivityGarmin{TrainingLoad: fp(80), AerobicTE: fp(3), AnaerobicTE: fp(1), VO2Max: fp(52), TSS: fp(60)}
 	for _, a := range []store.Activity{ride, run} {
@@ -737,7 +739,16 @@ func TestGetActivityNegativeID(t *testing.T) {
 			t.Fatalf("%s: source %v sport %v", detail, got["source"], got["sport"])
 		}
 		wantNull(t, obj(t, got["garmin_derived"]), "training_load", "aerobic_te", "anaerobic_te", "vo2max", "tss")
+		wantNum(t, got, "avg_power_w", 155)
+		iv := obj(t, got["intervals_derived"])
+		wantNum(t, iv, "training_load", 41)
+		wantNum(t, iv, "normalized_power_w", 163)
+		wantNum(t, iv, "intensity_factor", 0.65)
 	}
+	// A Garmin activity: intervals.icu's estimates are all null.
+	g := e.call(t, "get_activity", map[string]any{"id": 1}).object(t)
+	wantNull(t, g, "avg_power_w")
+	wantNull(t, obj(t, g["intervals_derived"]), "training_load", "normalized_power_w", "intensity_factor")
 	e.call(t, "get_activity", map[string]any{"id": 0}).wantError(t, "activity not found")
 
 	acts := arr(t, e.call(t, "list_activities", map[string]any{"from": "2026-10-01", "to": "2026-10-31"}).object(t)["activities"])

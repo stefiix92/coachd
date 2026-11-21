@@ -332,15 +332,25 @@ func (s *Service) downloadGarminFIT(ctx context.Context, id int64) ([]byte, stor
 	return nil, store.FITFailed, err
 }
 
-// downloadIntervalsFIT downloads an intervals.icu activity's original file.
-// A 404, or a body that fails the FIT integrity check (an HTML page, a GPX,
-// an empty or damaged file), is unavailable: the original is no usable FIT
-// and never will be. A 5xx, a damaged gzip or an oversized file is failed.
-// An empty status means draining intervals.icu should stop: a 429 (which
-// pauses intervals.icu calls), a rejected key, a transport failure or ctx
-// ending, as err says.
+// downloadIntervalsFIT downloads an intervals.icu activity's original file,
+// or, when that is no usable FIT (a 404, or a body that fails the FIT
+// integrity check: a GPX, a TCX, an empty or damaged file), the FIT file
+// intervals.icu generates from the activity's streams. When neither is a
+// usable FIT the activity is unavailable and never retried. A 5xx, a damaged
+// gzip or an oversized file is failed. An empty status means draining
+// intervals.icu should stop: a 429 (which pauses intervals.icu calls), a
+// rejected key, a transport failure or ctx ending, as err says.
 func (s *Service) downloadIntervalsFIT(ctx context.Context, sourceID string) ([]byte, store.FITStatus, error) {
-	body, err := s.opts.Intervals.DownloadFile(ctx, sourceID)
+	body, status, err := s.intervalsFIT(ctx, s.opts.Intervals.DownloadFile, sourceID)
+	if status == store.FITUnavailable {
+		body, status, err = s.intervalsFIT(ctx, s.opts.Intervals.DownloadGeneratedFIT, sourceID)
+	}
+	return body, status, err
+}
+
+// intervalsFIT runs one download and classifies it as downloadIntervalsFIT says.
+func (s *Service) intervalsFIT(ctx context.Context, dl func(context.Context, string) ([]byte, error), sourceID string) ([]byte, store.FITStatus, error) {
+	body, err := dl(ctx, sourceID)
 	switch {
 	case err == nil:
 		if err := fitdata.CheckIntegrity(body); err != nil {

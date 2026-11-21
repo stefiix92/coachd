@@ -17,7 +17,7 @@ import (
 const activityCols = `id, start_local, start_utc, date, week_start, type_key, sport, name_untrusted,
 	distance_m, duration_s, moving_s, elev_gain_m, elev_loss_m, avg_hr, max_hr, manual,
 	training_load, aerobic_te, anaerobic_te, vo2max, tss, fit_path, fit_status, fit_attempts,
-	source, source_id, has_power`
+	source, source_id, has_power, avg_power_w, icu_training_load, icu_np_w, icu_intensity_factor`
 
 // activityReadCols are activityCols plus the columns only the detail writes.
 const activityReadCols = activityCols + `, perceived_feel, perceived_rpe, hidden_by`
@@ -43,7 +43,7 @@ func (db *DB) UpsertActivity(ctx context.Context, a Activity, raw []byte) error 
 	}
 	_, err := db.sql.ExecContext(ctx, `
 INSERT INTO activities (`+activityCols+`, raw_json)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	start_local=excluded.start_local, start_utc=excluded.start_utc, date=excluded.date,
 	week_start=excluded.week_start, type_key=excluded.type_key, sport=excluded.sport,
@@ -53,12 +53,15 @@ ON CONFLICT(id) DO UPDATE SET
 	manual=excluded.manual, training_load=excluded.training_load, aerobic_te=excluded.aerobic_te,
 	anaerobic_te=excluded.anaerobic_te, vo2max=excluded.vo2max, tss=excluded.tss,
 	source=excluded.source, source_id=excluded.source_id, has_power=excluded.has_power,
+	avg_power_w=excluded.avg_power_w, icu_training_load=excluded.icu_training_load,
+	icu_np_w=excluded.icu_np_w, icu_intensity_factor=excluded.icu_intensity_factor,
 	raw_json=excluded.raw_json, deleted_at=NULL`,
 		a.ID, a.StartLocal.Format(time.RFC3339Nano), fmtTime(a.StartUTC), a.Date.String(), a.WeekStart.String(),
 		a.TypeKey, string(a.Sport), a.NameUntrusted,
 		a.DistanceM, a.DurationS, a.MovingS, a.ElevGainM, a.ElevLossM, a.AvgHR, a.MaxHR, boolInt(a.Manual),
 		a.Garmin.TrainingLoad, a.Garmin.AerobicTE, a.Garmin.AnaerobicTE, a.Garmin.VO2Max, a.Garmin.TSS,
-		a.FITPath, string(status), a.FITAttempts, string(src), sourceID, boolInt(a.HasPower), raw)
+		a.FITPath, string(status), a.FITAttempts, string(src), sourceID, boolInt(a.HasPower),
+		a.AvgPowerW, a.Intervals.TrainingLoad, a.Intervals.NormalizedPowerW, a.Intervals.IntensityFactor, raw)
 	if err != nil {
 		return fmt.Errorf("store: upsert activity: %w", err)
 	}
@@ -76,26 +79,29 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanActivity(s scanner) (Activity, error) {
 	var (
-		a                       Activity
-		startLocal, startUTC    string
-		date, week, sport, fits string
-		manual                  int
-		avgHR, maxHR            sql.NullFloat64
-		tl, ate, nte, vo2, tss  sql.NullFloat64
-		feel                    sql.NullInt64
-		rpe                     sql.NullFloat64
-		source                  string
-		sourceID                sql.NullString
-		hasPower                int
-		hiddenBy                sql.NullInt64
+		a                          Activity
+		startLocal, startUTC       string
+		date, week, sport, fits    string
+		manual                     int
+		avgHR, maxHR               sql.NullFloat64
+		tl, ate, nte, vo2, tss     sql.NullFloat64
+		feel                       sql.NullInt64
+		rpe                        sql.NullFloat64
+		source                     string
+		sourceID                   sql.NullString
+		hasPower                   int
+		avgPw, icuTL, icuNP, icuIF sql.NullFloat64
+		hiddenBy                   sql.NullInt64
 	)
 	if err := s.Scan(&a.ID, &startLocal, &startUTC, &date, &week, &a.TypeKey, &sport, &a.NameUntrusted,
 		&a.DistanceM, &a.DurationS, &a.MovingS, &a.ElevGainM, &a.ElevLossM, &avgHR, &maxHR, &manual,
 		&tl, &ate, &nte, &vo2, &tss, &a.FITPath, &fits, &a.FITAttempts,
-		&source, &sourceID, &hasPower, &feel, &rpe, &hiddenBy); err != nil {
+		&source, &sourceID, &hasPower, &avgPw, &icuTL, &icuNP, &icuIF, &feel, &rpe, &hiddenBy); err != nil {
 		return a, err
 	}
 	a.Source, a.HasPower = Source(source), hasPower != 0
+	a.AvgPowerW = fptr(avgPw)
+	a.Intervals = ActivityIntervals{TrainingLoad: fptr(icuTL), NormalizedPowerW: fptr(icuNP), IntensityFactor: fptr(icuIF)}
 	if sourceID.Valid {
 		a.SourceID = sourceID.String
 	}

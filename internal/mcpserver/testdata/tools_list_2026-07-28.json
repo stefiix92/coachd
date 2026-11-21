@@ -169,9 +169,16 @@
             ],
             "description": "Maximum heart rate in beats per minute"
           },
+          "avg_power_w": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "description": "Average power in watts, as the source reports it; null when it has none"
+          },
           "has_fit": {
             "type": "boolean",
-            "description": "Whether the original FIT file is stored (needed for laps and series)"
+            "description": "Whether a FIT file is stored (needed for laps and series): the original, or for an intervals.icu activity whose original is a GPX or TCX the one intervals.icu generates"
           },
           "perceived": {
             "type": "object",
@@ -244,6 +251,39 @@
               "anaerobic_te",
               "vo2max",
               "tss"
+            ],
+            "additionalProperties": false
+          },
+          "intervals_derived": {
+            "type": "object",
+            "properties": {
+              "training_load": {
+                "type": [
+                  "null",
+                  "number"
+                ],
+                "description": "intervals.icu training load"
+              },
+              "normalized_power_w": {
+                "type": [
+                  "null",
+                  "integer"
+                ],
+                "description": "intervals.icu normalized (weighted average) power in watts"
+              },
+              "intensity_factor": {
+                "type": [
+                  "null",
+                  "number"
+                ],
+                "description": "intervals.icu intensity factor: normalized power over the FTP set in intervals.icu, as a fraction"
+              }
+            },
+            "description": "intervals.icu's own estimates for the activity; all null for an activity from Garmin. Not on Garmin's scales: never add them to garmin_derived values",
+            "required": [
+              "training_load",
+              "normalized_power_w",
+              "intensity_factor"
             ],
             "additionalProperties": false
           },
@@ -702,9 +742,11 @@
           "elevation_loss_m",
           "avg_hr_bpm",
           "max_hr_bpm",
+          "avg_power_w",
           "has_fit",
           "perceived",
-          "garmin_derived"
+          "garmin_derived",
+          "intervals_derived"
         ],
         "additionalProperties": false
       }
@@ -1567,9 +1609,16 @@
                   ],
                   "description": "Maximum heart rate in beats per minute"
                 },
+                "avg_power_w": {
+                  "type": [
+                    "null",
+                    "integer"
+                  ],
+                  "description": "Average power in watts, as the source reports it; null when it has none"
+                },
                 "has_fit": {
                   "type": "boolean",
-                  "description": "Whether the original FIT file is stored (needed for laps and series)"
+                  "description": "Whether a FIT file is stored (needed for laps and series): the original, or for an intervals.icu activity whose original is a GPX or TCX the one intervals.icu generates"
                 },
                 "perceived": {
                   "type": "object",
@@ -1644,6 +1693,39 @@
                     "tss"
                   ],
                   "additionalProperties": false
+                },
+                "intervals_derived": {
+                  "type": "object",
+                  "properties": {
+                    "training_load": {
+                      "type": [
+                        "null",
+                        "number"
+                      ],
+                      "description": "intervals.icu training load"
+                    },
+                    "normalized_power_w": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ],
+                      "description": "intervals.icu normalized (weighted average) power in watts"
+                    },
+                    "intensity_factor": {
+                      "type": [
+                        "null",
+                        "number"
+                      ],
+                      "description": "intervals.icu intensity factor: normalized power over the FTP set in intervals.icu, as a fraction"
+                    }
+                  },
+                  "description": "intervals.icu's own estimates for the activity; all null for an activity from Garmin. Not on Garmin's scales: never add them to garmin_derived values",
+                  "required": [
+                    "training_load",
+                    "normalized_power_w",
+                    "intensity_factor"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -1660,9 +1742,11 @@
                 "elevation_loss_m",
                 "avg_hr_bpm",
                 "max_hr_bpm",
+                "avg_power_w",
                 "has_fit",
                 "perceived",
-                "garmin_derived"
+                "garmin_derived",
+                "intervals_derived"
               ],
               "additionalProperties": false
             },

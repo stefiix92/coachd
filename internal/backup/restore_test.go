@@ -478,7 +478,9 @@ func TestRestoreOlderSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := odb.Exec(`DROP INDEX idx_activities_source_id; ALTER TABLE activities DROP COLUMN hidden_by; ALTER TABLE activities DROP COLUMN has_power;
+	if _, err := odb.Exec(`ALTER TABLE activities DROP COLUMN icu_intensity_factor; ALTER TABLE activities DROP COLUMN icu_np_w;
+		ALTER TABLE activities DROP COLUMN icu_training_load; ALTER TABLE activities DROP COLUMN avg_power_w;
+		DROP INDEX idx_activities_source_id; ALTER TABLE activities DROP COLUMN hidden_by; ALTER TABLE activities DROP COLUMN has_power;
 		ALTER TABLE activities DROP COLUMN source_id; ALTER TABLE activities DROP COLUMN source;
 		ALTER TABLE activities DROP COLUMN perceived_rpe; ALTER TABLE activities DROP COLUMN perceived_feel;
 		ALTER TABLE notes DROP COLUMN valid_until; ALTER TABLE activity_detail DROP COLUMN workout_fp;

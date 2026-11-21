@@ -53,6 +53,9 @@ type Activity struct {
 	AverageHeartrate   *float64 `json:"average_heartrate"`
 	MaxHeartrate       *float64 `json:"max_heartrate"`
 	AverageWatts       *float64 `json:"icu_average_watts"`
+	WeightedAvgWatts   *float64 `json:"icu_weighted_avg_watts"` // normalized power
+	TrainingLoad       *float64 `json:"icu_training_load"`
+	Intensity          *float64 `json:"icu_intensity"` // intensity factor in percent
 }
 
 // Item pairs a decoded Activity with the raw JSON it came from.

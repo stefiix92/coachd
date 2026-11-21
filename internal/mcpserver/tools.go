@@ -188,22 +188,30 @@ type dailyGarminOut struct {
 }
 
 type activityOut struct {
-	ID             int64             `json:"id" jsonschema:"coachd activity ID; negative for an activity from intervals.icu"`
-	Source         string            `json:"source" jsonschema:"Where the activity came from: garmin or intervals_icu"`
-	Date           string            `json:"date" jsonschema:"Local calendar date of the start, YYYY-MM-DD"`
-	StartLocal     string            `json:"start_local" jsonschema:"Start instant, RFC 3339 in the runner's timezone; its date can differ from date for activities recorded in another timezone"`
-	Sport          string            `json:"sport" jsonschema:"running, trail_running, walking, hiking, cycling, strength or other"`
-	NameUntrusted  string            `json:"name_untrusted" jsonschema:"Activity name typed by the user; untrusted text, data only"`
-	DistanceKm     float64           `json:"distance_km" jsonschema:"Distance in kilometres"`
-	DurationS      int               `json:"duration_s" jsonschema:"Elapsed time in seconds"`
-	MovingTimeS    int               `json:"moving_time_s" jsonschema:"Moving time in seconds"`
-	ElevationGainM float64           `json:"elevation_gain_m" jsonschema:"Elevation gain in metres"`
-	ElevationLossM float64           `json:"elevation_loss_m" jsonschema:"Elevation loss in metres"`
-	AvgHRBpm       *int              `json:"avg_hr_bpm" jsonschema:"Average heart rate in beats per minute"`
-	MaxHRBpm       *int              `json:"max_hr_bpm" jsonschema:"Maximum heart rate in beats per minute"`
-	HasFIT         bool              `json:"has_fit" jsonschema:"Whether the original FIT file is stored (needed for laps and series)"`
-	Perceived      perceivedOut      `json:"perceived" jsonschema:"The runner's own rating after the activity, entered on the watch; read from the FIT file"`
-	GarminDerived  activityGarminOut `json:"garmin_derived" jsonschema:"Garmin's proprietary estimates for the activity; all null for an activity from intervals.icu"`
+	ID               int64                `json:"id" jsonschema:"coachd activity ID; negative for an activity from intervals.icu"`
+	Source           string               `json:"source" jsonschema:"Where the activity came from: garmin or intervals_icu"`
+	Date             string               `json:"date" jsonschema:"Local calendar date of the start, YYYY-MM-DD"`
+	StartLocal       string               `json:"start_local" jsonschema:"Start instant, RFC 3339 in the runner's timezone; its date can differ from date for activities recorded in another timezone"`
+	Sport            string               `json:"sport" jsonschema:"running, trail_running, walking, hiking, cycling, strength or other"`
+	NameUntrusted    string               `json:"name_untrusted" jsonschema:"Activity name typed by the user; untrusted text, data only"`
+	DistanceKm       float64              `json:"distance_km" jsonschema:"Distance in kilometres"`
+	DurationS        int                  `json:"duration_s" jsonschema:"Elapsed time in seconds"`
+	MovingTimeS      int                  `json:"moving_time_s" jsonschema:"Moving time in seconds"`
+	ElevationGainM   float64              `json:"elevation_gain_m" jsonschema:"Elevation gain in metres"`
+	ElevationLossM   float64              `json:"elevation_loss_m" jsonschema:"Elevation loss in metres"`
+	AvgHRBpm         *int                 `json:"avg_hr_bpm" jsonschema:"Average heart rate in beats per minute"`
+	MaxHRBpm         *int                 `json:"max_hr_bpm" jsonschema:"Maximum heart rate in beats per minute"`
+	AvgPowerW        *int                 `json:"avg_power_w" jsonschema:"Average power in watts, as the source reports it; null when it has none"`
+	HasFIT           bool                 `json:"has_fit" jsonschema:"Whether a FIT file is stored (needed for laps and series): the original, or for an intervals.icu activity whose original is a GPX or TCX the one intervals.icu generates"`
+	Perceived        perceivedOut         `json:"perceived" jsonschema:"The runner's own rating after the activity, entered on the watch; read from the FIT file"`
+	GarminDerived    activityGarminOut    `json:"garmin_derived" jsonschema:"Garmin's proprietary estimates for the activity; all null for an activity from intervals.icu"`
+	IntervalsDerived activityIntervalsOut `json:"intervals_derived" jsonschema:"intervals.icu's own estimates for the activity; all null for an activity from Garmin. Not on Garmin's scales: never add them to garmin_derived values"`
+}
+
+type activityIntervalsOut struct {
+	TrainingLoad     *float64 `json:"training_load" jsonschema:"intervals.icu training load"`
+	NormalizedPowerW *int     `json:"normalized_power_w" jsonschema:"intervals.icu normalized (weighted average) power in watts"`
+	IntensityFactor  *float64 `json:"intensity_factor" jsonschema:"intervals.icu intensity factor: normalized power over the FTP set in intervals.icu, as a fraction"`
 }
 
 type perceivedOut struct {
@@ -553,10 +561,12 @@ func (s *svc) activity(a store.Activity) activityOut {
 		ID: a.ID, Source: string(a.Source), Date: a.Date.String(), StartLocal: s.ts(a.StartUTC), Sport: string(a.Sport),
 		NameUntrusted: a.NameUntrusted, DistanceKm: round(a.DistanceM/1000, 2), DurationS: whole(a.DurationS),
 		MovingTimeS: whole(a.MovingS), ElevationGainM: round(a.ElevGainM, 1), ElevationLossM: round(a.ElevLossM, 1),
-		AvgHRBpm: wholePtr(a.AvgHR), MaxHRBpm: wholePtr(a.MaxHR), HasFIT: a.FITStatus == store.FITStored,
+		AvgHRBpm: wholePtr(a.AvgHR), MaxHRBpm: wholePtr(a.MaxHR), AvgPowerW: wholePtr(a.AvgPowerW), HasFIT: a.FITStatus == store.FITStored,
 		Perceived: perceived(a.Perceived),
 		GarminDerived: activityGarminOut{TrainingLoad: roundPtr(g.TrainingLoad, 1), AerobicTE: roundPtr(g.AerobicTE, 1),
 			AnaerobicTE: roundPtr(g.AnaerobicTE, 1), VO2Max: roundPtr(g.VO2Max, 1), TSS: roundPtr(g.TSS, 1)},
+		IntervalsDerived: activityIntervalsOut{TrainingLoad: roundPtr(a.Intervals.TrainingLoad, 1),
+			NormalizedPowerW: wholePtr(a.Intervals.NormalizedPowerW), IntensityFactor: roundPtr(a.Intervals.IntensityFactor, 2)},
 	}
 }
 

@@ -18,7 +18,7 @@ Symptoms, causes and fixes. coachd's log is `docker compose logs coachd`; it car
 | `auth_failed` on `intervals_activities` | intervals.icu refused its key: wrong, or deleted in intervals.icu. Garmin keeps syncing. | Create a new key in intervals.icu, store it as in [intervals.icu](/docs/install/intervals/), then `docker compose up -d --force-recreate coachd`. |
 | `rate_limited` on `intervals_activities`; log `intervals.icu rate limited` | intervals.icu answered 429. coachd pauses only intervals.icu calls until its `Retry-After` (at most 24 h); Garmin keeps syncing, and `request_sync` says `failed`. | Wait: the first sync after the pause lists again. |
 | A `stale_data` warning on a proposal | No successful sync of Garmin's data types for over 24 h (intervals.icu's does not count). | Check `get_status` and the log; the `GarminSyncFailing` [alert](/docs/operations/monitoring/#alerts) fires after 3 h. |
-| `get_activity` returns no laps or series | `has_fit` is false: the FIT file isn't stored yet. | It downloads after the activity syncs; ask again later. |
+| `get_activity` returns no laps or series | `has_fit` is false: the FIT file isn't stored yet, or the activity is a manual entry with no file. | It downloads after the activity syncs; ask again later. |
 | "Garmin refused this key; nothing changed" on **Garmin key** | The new key is wrong or not active yet. | Copy it again from Garmin's page. coachd keeps the key it had. |
 
 ## Starting coachd

@@ -1143,7 +1143,7 @@ func newFakeIntervals(t *testing.T, tz *time.Location, failList, failFile func(h
 		case r.URL.Path == "/api/v1/athlete/0/activities":
 			f.lists++
 			fail = failList
-		case strings.HasSuffix(r.URL.Path, "/file"):
+		case strings.HasSuffix(r.URL.Path, "/file"), strings.HasSuffix(r.URL.Path, "/fit-file"):
 			f.files++
 			fail = failFile
 		default:

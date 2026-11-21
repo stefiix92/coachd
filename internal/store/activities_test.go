@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -495,10 +496,87 @@ func TestMigrateSourceOnPopulatedDB(t *testing.T) {
 	}
 }
 
+// TestMigratePowerLoadOnPopulatedDB builds a database at 0001-0016 holding a
+// Garmin ride with power, an intervals.icu ride with a FIT original and an
+// intervals.icu GPX upload, then opens it: 0017 fills average power and
+// intervals.icu's estimates from the raw JSON and queues the GPX upload's FIT.
+func TestMigratePowerLoadOnPopulatedDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coachd.db")
+	ctx := context.Background()
+	old, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := old.Exec(q, args...); err != nil {
+			t.Fatalf("%.40s: %v", q, err)
+		}
+	}
+	exec(`CREATE TABLE schema_migrations (version TEXT PRIMARY KEY)`)
+	for _, v := range migrationVersions() {
+		if v >= "0017" {
+			break
+		}
+		body, err := migrationFS.ReadFile("migrations/" + v + ".sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(body))
+		exec(`INSERT INTO schema_migrations(version) VALUES (?)`, v)
+	}
+	ins := `INSERT INTO activities (id, start_local, start_utc, date, week_start, sport, distance_m, source, source_id, fit_status, fit_attempts, raw_json)
+		VALUES (?, '2026-10-20T07:30:00+02:00', '2026-10-20T05:30:00.000000000Z', '2026-10-20', '2026-10-19', 'cycling', 5000, ?, ?, ?, ?, ?)`
+	exec(ins, 1, "garmin", nil, "stored", 0, `{"activityId":1,"avgPower":187.0}`)
+	exec(ins, 2, "garmin", nil, "unavailable", 0, `{"activityId":2,"avgPower":0}`)
+	exec(ins, -3, "intervals_icu", "i3", "stored", 0, `{"id":"i3","file_type":"fit","icu_average_watts":155,"icu_weighted_avg_watts":163,"icu_training_load":41,"icu_intensity":65.2}`)
+	exec(ins, -4, "intervals_icu", "i4", "unavailable", 0, `{"id":"i4","file_type":"gpx","icu_average_watts":null,"icu_weighted_avg_watts":null,"icu_training_load":73,"icu_intensity":69.5}`)
+	exec(ins, -5, "intervals_icu", "i5", "unavailable", 0, `{"id":"i5","source":"MANUAL"}`)
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	f := func(v *float64) float64 {
+		if v == nil {
+			return -1
+		}
+		return *v
+	}
+	for _, w := range []struct {
+		id             int64
+		pw, tl, np, in float64 // -1: null
+		fit            FITStatus
+	}{
+		{1, 187, -1, -1, -1, FITStored},
+		{2, -1, -1, -1, -1, FITUnavailable}, // a Garmin row without a file is left alone
+		{-3, 155, 41, 163, 0.652, FITStored},
+		{-4, -1, 73, -1, 0.695, FITPending}, // the generated FIT is now worth a try
+		{-5, -1, -1, -1, -1, FITUnavailable},
+	} {
+		a, err := db.GetActivity(ctx, w.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		iv := a.Intervals
+		if f(a.AvgPowerW) != w.pw || f(iv.TrainingLoad) != w.tl || f(iv.NormalizedPowerW) != w.np ||
+			math.Abs(f(iv.IntensityFactor)-w.in) > 1e-9 || a.FITStatus != w.fit {
+			t.Errorf("activity %d = power %v, load %v, np %v, if %v, fit %s; want %+v", w.id,
+				f(a.AvgPowerW), f(iv.TrainingLoad), f(iv.NormalizedPowerW), f(iv.IntensityFactor), a.FITStatus, w)
+		}
+	}
+}
+
 func TestUpsertIntervalsActivity(t *testing.T) {
 	db, ctx := openTest(t), context.Background()
 	a := mkAct(-55751783, "2026-10-20", SportCycling, 40000)
 	a.Source, a.SourceID, a.HasPower = SourceIntervals, "i55751783", true
+	pw, tl, np, inf := 155.0, 41.0, 163.0, 0.652
+	a.AvgPowerW, a.Intervals = &pw, ActivityIntervals{TrainingLoad: &tl, NormalizedPowerW: &np, IntensityFactor: &inf}
 	for range 2 {
 		if err := db.UpsertActivity(ctx, a, []byte(`{"id":"i55751783"}`)); err != nil {
 			t.Fatal(err)
@@ -514,6 +592,10 @@ func TestUpsertIntervalsActivity(t *testing.T) {
 	}
 	if got.Source != SourceIntervals || got.SourceID != "i55751783" || !got.HasPower || got.HiddenBy != nil {
 		t.Fatalf("round trip = %q %q %v %v", got.Source, got.SourceID, got.HasPower, got.HiddenBy)
+	}
+	if iv := got.Intervals; got.AvgPowerW == nil || *got.AvgPowerW != 155 || iv.TrainingLoad == nil || *iv.TrainingLoad != 41 ||
+		iv.NormalizedPowerW == nil || *iv.NormalizedPowerW != 163 || iv.IntensityFactor == nil || *iv.IntensityFactor != 0.652 {
+		t.Fatalf("round trip power and intervals values = %v %+v", got.AvgPowerW, iv)
 	}
 	// An empty Source is a Garmin row with no source ID.
 	if err := db.UpsertActivity(ctx, mkAct(9, "2026-10-20", SportRunning, 1), nil); err != nil {

@@ -125,7 +125,18 @@ func (c *Client) ListActivities(ctx context.Context, from, to civil.Date) ([]Ite
 // that starts with the gzip magic is gunzipped; any other body is returned
 // as is. A file over 64 MiB, compressed or decompressed, is an error.
 func (c *Client) DownloadFile(ctx context.Context, id string) ([]byte, error) {
-	body, err := c.get(ctx, "file", "/api/v1/activity/"+url.PathEscape(id)+"/file", maxFileBody)
+	return c.download(ctx, "file", id)
+}
+
+// DownloadGeneratedFIT returns the FIT file intervals.icu builds from the
+// activity's streams, for an activity whose original is not a FIT file. Body
+// handling and limits are DownloadFile's.
+func (c *Client) DownloadGeneratedFIT(ctx context.Context, id string) ([]byte, error) {
+	return c.download(ctx, "fit-file", id)
+}
+
+func (c *Client) download(ctx context.Context, endpoint, id string) ([]byte, error) {
+	body, err := c.get(ctx, endpoint, "/api/v1/activity/"+url.PathEscape(id)+"/"+endpoint, maxFileBody)
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +145,14 @@ func (c *Client) DownloadFile(ctx context.Context, id string) ([]byte, error) {
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("intervals: file: bad gzip")
+		return nil, fmt.Errorf("intervals: %s: bad gzip", endpoint)
 	}
 	out, err := io.ReadAll(io.LimitReader(zr, maxFileBody+1))
 	if err != nil {
-		return nil, fmt.Errorf("intervals: file: bad gzip")
+		return nil, fmt.Errorf("intervals: %s: bad gzip", endpoint)
 	}
 	if int64(len(out)) > maxFileBody {
-		return nil, fmt.Errorf("intervals: file: response too large")
+		return nil, fmt.Errorf("intervals: %s: response too large", endpoint)
 	}
 	return out, nil
 }
