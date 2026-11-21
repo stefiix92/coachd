@@ -282,6 +282,20 @@ func (db *DB) ActivitiesNeedingFIT(ctx context.Context, limit int) ([]Activity, 
 		"ORDER BY date DESC, id DESC LIMIT "+strconv.Itoa(limit))
 }
 
+// HasPendingFIT reports whether an activity dated in [from, to] still waits
+// for its first FIT download (status pending). Hidden copies count, as in
+// ActivitiesNeedingFIT; soft-deleted activities do not.
+func (db *DB) HasPendingFIT(ctx context.Context, from, to civil.Date) (bool, error) {
+	var n int
+	err := db.sql.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM activities WHERE deleted_at IS NULL AND fit_status='pending' AND date >= ? AND date <= ?)`,
+		from.String(), to.String()).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("store: pending fit: %w", err)
+	}
+	return n != 0, nil
+}
+
 // SetFIT records FIT state; status failed increments fit_attempts. It also
 // updates a soft-deleted row, so a download in flight is not orphaned.
 func (db *DB) SetFIT(ctx context.Context, id int64, path string, status FITStatus) error {

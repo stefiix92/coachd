@@ -47,12 +47,17 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
 |---|---|---|
 | `activity.stored` | unchanged (`post-run-webhook.md`) | unchanged, byte for byte |
 | `health.day_ready` | today's `daily_health` row first has a sleep duration | `{"event":"health.day_ready","date":"2026-11-21"}` |
-| `workout.unmatched` | at or after 06:00 local, a proposal dated yesterday is `delivered` and no activity carried it out | `{"event":"workout.unmatched","date":"2026-11-20","proposal_id":"…"}` |
+| `workout.unmatched` | at or after 06:00 local, once yesterday's activities are in (below), a proposal dated yesterday is `delivered` and no activity carried it out | `{"event":"workout.unmatched","date":"2026-11-20","proposal_id":"…"}` |
 | `week.closed` | Monday at or after 06:00 local | `{"event":"week.closed","date":"2026-11-16"}` (the Monday that started the closed week) |
 
 - `workout.unmatched`, not "missed": coachd knows only that no stored activity matches. **[call]** A
   proposal that was approved but never reached the watch expires and sends nothing. **[call]**
 - 06:00 gives a late evening activity time to sync. **[call]**
+- Yesterday's activities are in when both hold: (a) the `activities` sync state shows a successful
+  Garmin activities sync at or after 06:00 local today, and (b) no activity dated yesterday or today
+  still has its FIT file `pending` (the link to a proposal needs the FIT's recorded steps,
+  `workout-outcome.md`). Until both hold, `workout.unmatched` is not evaluated: nothing is sent or
+  marked, and the next check tries again. This orders the check; it evaluates nothing. **[call]**
 - Each event fires once per key (the date, or the proposal ID), remembered in the database, so a
   restart repeats nothing. Events are evaluated only for today, yesterday and the week just closed,
   so downtime sends at most one of each kind when coachd comes back. **[call]**

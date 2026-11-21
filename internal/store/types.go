@@ -117,6 +117,9 @@ type SyncState struct {
 // data type is Garmin's.
 const SyncTypeIntervals = "intervals_activities"
 
+// SyncTypeActivities is the data type of Garmin activities.
+const SyncTypeActivities = "activities"
+
 // FromGarmin reports whether the state is of one of Garmin's data types.
 func (s SyncState) FromGarmin() bool { return s.DataType != SyncTypeIntervals }
 

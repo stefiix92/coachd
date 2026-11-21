@@ -20,3 +20,27 @@ func (db *DB) MarkEvent(ctx context.Context, event, key string, at time.Time) (f
 	}
 	return n > 0, nil
 }
+
+// EventMark is one recorded event and its key.
+type EventMark struct {
+	Event, Key string
+}
+
+// EventMarks returns every recorded mark, by event then key. Tests use it to
+// see what was marked.
+func (db *DB) EventMarks(ctx context.Context) ([]EventMark, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT event, key FROM event_marks ORDER BY event, key`)
+	if err != nil {
+		return nil, fmt.Errorf("store: event marks: %w", err)
+	}
+	defer rows.Close()
+	var out []EventMark
+	for rows.Next() {
+		var m EventMark
+		if err := rows.Scan(&m.Event, &m.Key); err != nil {
+			return nil, fmt.Errorf("store: event marks: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

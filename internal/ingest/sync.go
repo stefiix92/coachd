@@ -82,7 +82,7 @@ const recentActivity = 48 * time.Hour
 // Data types, in sync order. They are also the sync_state keys and the
 // raw_payloads sources for daily types.
 const (
-	TypeActivities = "activities"
+	TypeActivities = store.SyncTypeActivities
 	// TypeIntervals is the activities of intervals.icu, synced only when
 	// Options.Intervals is set. It has no backfill and no catch-up: its first
 	// window reaches back BackfillDays.

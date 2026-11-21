@@ -8,7 +8,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ### Added
 
-- **Proactive events:** the webhook can also send `health.day_ready` (today's sleep is stored), `workout.unmatched` (yesterday's delivered workout has no matching activity, checked from 06:00 local) and `week.closed` (Monday from 06:00 local). Each carries dates and IDs only and fires once. List them in `COACHD_WEBHOOK_EVENTS` (default `activity.stored`) ([Proactive events](https://stefiix92.github.io/coachd/docs/agents/proactive/)).
+- **Proactive events:** the webhook can also send `health.day_ready` (today's sleep is stored), `workout.unmatched` (yesterday's delivered workout has no matching activity, checked from 06:00 local, after that morning's activity sync and FIT downloads) and `week.closed` (Monday from 06:00 local). Each carries dates and IDs only and fires once. List them in `COACHD_WEBHOOK_EVENTS` (default `activity.stored`) ([Proactive events](https://stefiix92.github.io/coachd/docs/agents/proactive/)).
 - **`COACHD_NUDGES`:** with ntfy configured, `true` sends a fixed-text push for the three new moments. Default `false`.
 - **Agent messages on the page and as a push:** the home page lists the newest 5 messages from the last 7 days, and with ntfy configured a message sends a push that says only that one waits (at most one per 15 minutes).
 

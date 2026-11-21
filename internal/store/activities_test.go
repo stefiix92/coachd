@@ -185,6 +185,49 @@ func TestActivitiesNeedingFITStopsAfterThreeFailures(t *testing.T) {
 	}
 }
 
+// HasPendingFIT sees live activities in the range whose FIT is pending, the
+// hidden copy included; a stored, failed or soft-deleted one does not count.
+func TestHasPendingFIT(t *testing.T) {
+	db, ctx := openTest(t), context.Background()
+	pending := func(from, to string) bool {
+		t.Helper()
+		got, err := db.HasPendingFIT(ctx, d(from), d(to))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if pending("2026-11-02", "2026-11-03") {
+		t.Fatal("pending on an empty store")
+	}
+	db.UpsertActivity(ctx, mkAct(1, "2026-11-02", SportRunning, 1), nil)
+	db.UpsertActivity(ctx, mkAct(2, "2026-11-03", SportRunning, 1), nil)
+	db.SetFIT(ctx, 2, "x.fit", FITStored)
+	db.UpsertActivity(ctx, mkAct(3, "2026-11-03", SportRunning, 1), nil)
+	db.SetFIT(ctx, 3, "", FITFailed)
+	db.UpsertActivity(ctx, mkAct(4, "2026-11-03", SportRunning, 1), nil)
+	db.MarkActivityDeleted(ctx, 4, time.Now())
+	db.UpsertActivity(ctx, mkAct(5, "2026-10-31", SportRunning, 1), nil)
+	if !pending("2026-11-02", "2026-11-03") || !pending("2026-10-31", "2026-10-31") {
+		t.Fatal("a pending FIT in the range is not seen")
+	}
+	if pending("2026-11-03", "2026-11-03") || pending("2026-11-04", "2026-11-05") {
+		t.Fatal("stored, failed, deleted or out-of-range activities count as pending")
+	}
+	db.SetFIT(ctx, 1, "y.fit", FITStored)
+	if pending("2026-11-02", "2026-11-03") {
+		t.Fatal("still pending after the FIT was stored")
+	}
+	db.UpsertActivity(ctx, mkAct(6, "2026-11-03", SportRunning, 1), nil)
+	by := int64(2)
+	if err := db.SetHiddenBy(ctx, 6, &by); err != nil {
+		t.Fatal(err)
+	}
+	if !pending("2026-11-03", "2026-11-03") {
+		t.Fatal("a hidden copy's pending FIT is not seen")
+	}
+}
+
 func TestWeeklyVolumeGroupsBySportAndWeek(t *testing.T) {
 	db, ctx := openTest(t), context.Background()
 	// 2026-10-19 is a Monday.
