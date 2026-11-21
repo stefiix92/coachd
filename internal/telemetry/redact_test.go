@@ -181,7 +181,7 @@ func TestClientClass(t *testing.T) {
 func TestAllowedKeysPinned(t *testing.T) {
 	want := []string{"lane", "tool", "outcome", "data_type", "endpoint", "status_class", "reason", "client",
 		"activity_id", "calendar_date", "count", "duration_ms", "attempt", "retry_after_s", "error", "error_class",
-		"component", "request_id", "version", "addr", "proposal_id", "status", "device_id", "format",
+		"component", "request_id", "version", "addr", "proposal_id", "status", "device_id", "format", "event",
 		"http.request.method", "http.response.status_code", "http.route", "network.protocol.version", "server.address"}
 	if !slices.Equal(AllowedKeys, want) {
 		t.Fatalf("AllowedKeys changed:\n got %q\nwant %q", AllowedKeys, want)

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/stefiix92/coachd/internal/civil"
 	"github.com/stefiix92/coachd/internal/telemetry"
+	"github.com/stefiix92/coachd/internal/triggers"
 )
 
 const (
@@ -37,13 +39,18 @@ const (
 	kindProposal noticeKind = iota
 	kindAppConnected
 	kindConnectionRevoked
+	kindDayReady
+	kindWorkoutUnmatched
+	kindWeekClosed
+	kindAgentMessage
 )
 
 type notice struct {
-	kind noticeKind
-	id   string // proposal notices only
-	date civil.Date
-	link trace.SpanContext
+	kind  noticeKind
+	id    string // proposal notices only
+	event string // nudges only: the event name
+	date  civil.Date
+	link  trace.SpanContext
 }
 
 // Connection notice texts (spec §9, M14). They never name the client.
@@ -51,6 +58,18 @@ const (
 	textAppConnected      = "A new app was connected to coachd"
 	textConnectionRevoked = "coachd revoked an app connection after a token was reused"
 )
+
+// Nudge and message push texts (proactive spec §5, §6). They carry no health
+// value, name or agent text.
+const (
+	textDayReady         = "Last night's sleep data is in"
+	textWorkoutUnmatched = "Yesterday's workout has no matching activity"
+	textWeekClosed       = "Last week's numbers are complete"
+	textAgentMessage     = "Your agent left a message"
+)
+
+// messageInterval is the least time between two agent-message pushes.
+const messageInterval = 15 * time.Minute
 
 // Ntfy sends one notification per pending proposal or connection event from
 // a single worker.
@@ -62,6 +81,9 @@ type Ntfy struct {
 	tracer                     trace.Tracer
 	queue                      chan notice
 	sleep                      func(ctx context.Context, d time.Duration) error
+	now                        func() time.Time
+	mu                         sync.Mutex
+	lastMessage                time.Time // the last message push enqueued
 }
 
 // NewNtfy sends to topicURL (the full topic URL). token may be empty.
@@ -74,7 +96,7 @@ func NewNtfy(topicURL, token, publicURL string, client *http.Client,
 		topicURL: topicURL, token: token, publicURL: strings.TrimRight(publicURL, "/"),
 		client: client, m: m, log: log, tracer: tracer,
 		queue: make(chan notice, queueSize),
-		sleep: sleepCtx,
+		sleep: sleepCtx, now: time.Now,
 	}
 }
 
@@ -109,6 +131,35 @@ func (n *Ntfy) AppConnected() { n.enqueue(notice{kind: kindAppConnected}) }
 // was reused"; it never blocks. A full queue drops it.
 func (n *Ntfy) ConnectionRevoked() { n.enqueue(notice{kind: kindConnectionRevoked}) }
 
+// Fire enqueues a nudge for a day, workout or week event; it never blocks.
+// Other events send nothing.
+func (n *Ntfy) Fire(_ context.Context, ev triggers.Event) {
+	kind, ok := map[string]noticeKind{
+		triggers.HealthDayReady:   kindDayReady,
+		triggers.WorkoutUnmatched: kindWorkoutUnmatched,
+		triggers.WeekClosed:       kindWeekClosed,
+	}[ev.Name]
+	if !ok {
+		return
+	}
+	n.enqueue(notice{kind: kind, event: ev.Name, id: ev.ProposalID})
+}
+
+// AgentMessage enqueues "your agent left a message", at most once per 15
+// minutes counted from the last push enqueued; a message inside the window is
+// not pushed. It never blocks.
+func (n *Ntfy) AgentMessage() {
+	n.mu.Lock()
+	now := n.now()
+	if !n.lastMessage.IsZero() && now.Sub(n.lastMessage) < messageInterval {
+		n.mu.Unlock()
+		return
+	}
+	n.lastMessage = now
+	n.mu.Unlock()
+	n.enqueue(notice{kind: kindAgentMessage, event: "agent.message"})
+}
+
 // enqueue queues nt without blocking; a full queue drops and counts it.
 func (n *Ntfy) enqueue(nt notice) {
 	select {
@@ -124,6 +175,12 @@ func (n *Ntfy) logAttrs(nt notice, kv ...any) []any {
 	attrs := []any{"component", "notify"}
 	if nt.kind == kindProposal {
 		attrs = append(attrs, "proposal_id", nt.id)
+	}
+	if nt.kind == kindDayReady || nt.kind == kindWorkoutUnmatched || nt.kind == kindWeekClosed {
+		attrs = append(attrs, "event", nt.event)
+		if nt.id != "" {
+			attrs = append(attrs, "proposal_id", nt.id)
+		}
 	}
 	return append(attrs, kv...)
 }
@@ -146,13 +203,22 @@ func (n *Ntfy) deliver(ctx context.Context, nt notice) {
 		opts = append(opts, trace.WithLinks(trace.Link{SpanContext: nt.link}))
 	}
 	name := "proposal.notify"
-	if nt.kind != kindProposal {
+	switch nt.kind {
+	case kindAppConnected, kindConnectionRevoked:
 		name = "connection.notify"
+	case kindDayReady, kindWorkoutUnmatched, kindWeekClosed, kindAgentMessage:
+		name = "event.notify"
 	}
 	ctx, span := n.tracer.Start(ctx, name, opts...)
 	defer span.End()
 	if nt.kind == kindProposal {
 		span.SetAttributes(attribute.String("proposal_id", nt.id))
+	}
+	if nt.kind == kindDayReady || nt.kind == kindWorkoutUnmatched || nt.kind == kindWeekClosed {
+		span.SetAttributes(attribute.String("event", nt.event))
+		if nt.id != "" {
+			span.SetAttributes(attribute.String("proposal_id", nt.id))
+		}
 	}
 
 	outcome, status, errClass := retry(ctx, n.sleep, func(ctx context.Context) (int, string) { return n.send(ctx, nt) })
@@ -216,9 +282,22 @@ func (n *Ntfy) message(nt notice) (body, actions string) {
 		return textAppConnected, fmt.Sprintf("view, Open, %s/apps, clear=true", n.publicURL)
 	case kindConnectionRevoked:
 		return textConnectionRevoked, fmt.Sprintf("view, Open, %s/apps, clear=true", n.publicURL)
+	case kindDayReady:
+		return textDayReady, n.homeAction()
+	case kindWorkoutUnmatched:
+		return textWorkoutUnmatched, n.homeAction()
+	case kindWeekClosed:
+		return textWeekClosed, n.homeAction()
+	case kindAgentMessage:
+		return textAgentMessage, n.homeAction()
 	}
 	return fmt.Sprintf("Workout for %s ready to review", time.Date(nt.date.Year, nt.date.Month, nt.date.Day, 0, 0, 0, 0, time.UTC).Format("Mon 2 Jan")),
 		fmt.Sprintf("view, Review, %s/p/%s, clear=true", n.publicURL, nt.id)
+}
+
+// homeAction is the Actions header linking to the page.
+func (n *Ntfy) homeAction() string {
+	return fmt.Sprintf("view, Open, %s/, clear=true", n.publicURL)
 }
 
 // send makes one attempt. It returns the HTTP status (0 on a network error)

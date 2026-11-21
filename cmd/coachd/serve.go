@@ -225,7 +225,7 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 	}
 	var webhook *notify.Webhook
 	if cfg.WebhookURL != "" {
-		webhook = notify.NewWebhook(cfg.WebhookURL, cfg.WebhookToken, db, nil, tel.Metrics, tel.Logger, tel.Tracer)
+		webhook = notify.NewWebhook(cfg.WebhookURL, cfg.WebhookToken, cfg.WebhookEvents, db, nil, tel.Metrics, tel.Logger, tel.Tracer)
 		ingestOpts.Events = webhook // only when configured: a nil *Webhook in the interface is not nil
 		if strings.HasPrefix(cfg.WebhookURL, "http://") {
 			log.Warn("webhook URL is plain http: its token travels in clear text")
