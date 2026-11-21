@@ -486,7 +486,7 @@ func TestRestoreOlderSchema(t *testing.T) {
 		ALTER TABLE notes DROP COLUMN valid_until; ALTER TABLE activity_detail DROP COLUMN workout_fp;
 		ALTER TABLE activity_detail DROP COLUMN workout_json; DROP TABLE messages; DROP TABLE instance;
 		DROP TABLE oauth_tokens; DROP TABLE oauth_codes; DROP TABLE oauth_grants; DROP TABLE oauth_clients;
-		DROP TABLE deliveries; DROP TABLE device_pairings; DROP TABLE devices; DROP TABLE event_marks;
+		DROP TABLE deliveries; DROP TABLE device_pairings; DROP TABLE devices; DROP TABLE event_marks; DROP TABLE checkins; DROP TABLE sport_settings;
 		DELETE FROM schema_migrations WHERE version >= '0007'`); err != nil {
 		t.Fatal(err)
 	}

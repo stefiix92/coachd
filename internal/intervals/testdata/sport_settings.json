@@ -1,0 +1,53 @@
+[
+  {
+    "id": 900001,
+    "athlete_id": "i900000",
+    "types": ["Ride", "VirtualRide"],
+    "ftp": 240,
+    "indoor_ftp": null,
+    "lthr": 170,
+    "max_hr": 190,
+    "threshold_pace": null,
+    "pace_units": "MINS_KM",
+    "power_zones": [55, 75, 90, 105, 120, 150, 999],
+    "power_zone_names": ["Active Recovery", "Endurance", "Tempo", "Threshold", "VO2 Max", "Anaerobic", "Neuromuscular"],
+    "hr_zones": [140, 155, 165, 175, 180, 185, 190],
+    "hr_zone_names": ["Recovery", "Aerobic", "Tempo", "SubThreshold", "SuperThreshold", "Aerobic Capacity", "Anaerobic"],
+    "pace_zones": null,
+    "pace_zone_names": null,
+    "warmup_time": 1200,
+    "w_prime": 20000,
+    "created": "2023-01-02T08:00:00.000+00:00",
+    "updated": "2024-05-27T10:29:50.935+00:00"
+  },
+  {
+    "id": 900002,
+    "athlete_id": "i900000",
+    "types": ["Other"],
+    "ftp": null,
+    "indoor_ftp": null,
+    "lthr": null,
+    "max_hr": null,
+    "threshold_pace": null,
+    "pace_units": null,
+    "power_zones": null,
+    "power_zone_names": null,
+    "hr_zones": null,
+    "hr_zone_names": null,
+    "updated": null
+  },
+  {
+    "id": 900003,
+    "athlete_id": "i900000",
+    "types": ["Swim"],
+    "ftp": null,
+    "indoor_ftp": null,
+    "lthr": null,
+    "max_hr": null,
+    "threshold_pace": 0.9,
+    "pace_units": "SECS_100M",
+    "pace_zones": [80, 90, 100, 110],
+    "pace_zone_names": ["Easy", "Steady", "Hard", "Sprint"],
+    "updated": "2024-06-01T09:00:00.000+00:00"
+  }
+]

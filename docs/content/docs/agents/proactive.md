@@ -51,13 +51,14 @@ The shape is the same for any agent platform:
 1. **Receiver.** Run any automation that accepts the webhook POST (n8n, Home Assistant, a small script behind your reverse proxy). It reads `event` and `date` from the body.
 2. **Agent run.** The automation starts a headless agent run with the coachd MCP server connected, and passes a prompt that names the event and the date. The exact command, and how to give the run an MCP server and a coachd token, depend on your platform: check its documentation.
 3. **Read.** The agent reads coachd for everything else, because an event carries nothing but a date and IDs.
-4. **Reply.** The agent calls `send_message` with a short note (at most 300 characters). That reaches your watch, your page and, through ntfy, your phone.
+4. **Ask and store (morning).** On `health.day_ready` where the platform keeps a conversation open, the agent asks you how you feel and stores the answer with `log_checkin`; otherwise the next conversation asks. Either way the stored check-in is there for the next run.
+5. **Reply.** The agent calls `send_message` with a short note (at most 300 characters). That reaches your watch, your page and, through ntfy, your phone.
 
 What the prompt should contain, per event:
 
 | Event | Prompt says | The agent reads |
 |---|---|---|
-| `health.day_ready` | The event and date. Ask for a short morning note on today's plan, and to stay silent when nothing needs saying. | `get_daily_health` for the date and the days before, `get_summaries`, `get_notes`, `list_workouts` for today. |
+| `health.day_ready` | The event and date. Ask me how I feel (soreness, fatigue, stress, mood, motivation, sleep quality, pain) and store my answer with `log_checkin`, only what I say. Then ask for a short morning note on today's plan, and to stay silent when nothing needs saying. | `get_daily_health` for the date and the days before, `get_summaries`, `get_notes`, `list_workouts` for today, `get_profile` for my thresholds. |
 | `workout.unmatched` | The event, the date and the proposal ID. Say that the activity may not have synced yet. | `request_sync`, then `list_activities` for the date and `get_activity` with detail `laps`; `list_workouts` for the proposal. Ask me what happened if there is still no activity. |
 | `week.closed` | The event and the Monday that started the week. | `get_summaries` for that week and the weeks before, `list_workouts`, `get_notes`, `get_goal`. |
 | `activity.stored` | The event, `activity_id` and `proposal_id`. | `get_activity` with detail `laps`; compare `workout.executed` with the plan. |

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -113,7 +114,7 @@ func TestAlertRuleSemantics(t *testing.T) {
 	rs := rules(t)
 	for title, want := range map[string][]string{
 		// An intervals.icu outage alone must not fire an alert named for Garmin.
-		"GarminSyncFailing": {`expr: 'max(coachd_garmin_sync_last_success_age_seconds{data_type!="intervals_activities"})'`,
+		"GarminSyncFailing": {`expr: 'max(coachd_garmin_sync_last_success_age_seconds{data_type!~"intervals_.*"})'`,
 			"- evaluator: {type: gt, params: [10800]}", "noDataState: Alerting"},
 		"GarminKeyExpiring": {"- evaluator: {type: lt, params: [8]}"},
 		"BackupStale":       {"- evaluator: {type: gt, params: [172800]}", "for: 10m", "noDataState: Alerting"},
@@ -127,6 +128,32 @@ func TestAlertRuleSemantics(t *testing.T) {
 			if !contains(r, w) {
 				t.Errorf("%s lacks %q", title, w)
 			}
+		}
+	}
+}
+
+// TestGarminSyncFailingLeavesOutBothIntervalsTypes: the matcher in the rule
+// excludes the intervals.icu activities and profile data types, so neither
+// an outage there fires an alert named for Garmin. Prometheus matchers are
+// fully anchored.
+func TestGarminSyncFailingLeavesOutBothIntervalsTypes(t *testing.T) {
+	r, ok := rules(t)["GarminSyncFailing"]
+	if !ok {
+		t.Fatal("no rule GarminSyncFailing")
+	}
+	const line = `expr: 'max(coachd_garmin_sync_last_success_age_seconds{data_type!~"intervals_.*"})'`
+	if !contains(r, line) {
+		t.Fatalf("rule lacks %s", line)
+	}
+	re := regexp.MustCompile("^(?:intervals_.*)$")
+	for _, typ := range []string{"intervals_activities", "intervals_profile"} {
+		if !re.MatchString(typ) {
+			t.Errorf("matcher does not exclude %s", typ)
+		}
+	}
+	for _, typ := range []string{"activities", "sleep", "hrv"} {
+		if re.MatchString(typ) {
+			t.Errorf("matcher excludes Garmin type %s", typ)
 		}
 	}
 }

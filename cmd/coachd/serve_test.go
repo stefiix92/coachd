@@ -1118,6 +1118,7 @@ type fakeIntervals struct {
 	*httptest.Server
 	mu                 sync.Mutex
 	lists, files, rest int
+	profiles           int // sport-settings requests, kept out of rest
 	unauthenticated    int
 }
 
@@ -1143,6 +1144,8 @@ func newFakeIntervals(t *testing.T, tz *time.Location, failList, failFile func(h
 		case r.URL.Path == "/api/v1/athlete/0/activities":
 			f.lists++
 			fail = failList
+		case r.URL.Path == "/api/v1/athlete/0/sport-settings":
+			f.profiles++
 		case strings.HasSuffix(r.URL.Path, "/file"), strings.HasSuffix(r.URL.Path, "/fit-file"):
 			f.files++
 			fail = failFile
@@ -1156,6 +1159,9 @@ func newFakeIntervals(t *testing.T, tz *time.Location, failList, failFile func(h
 		case r.URL.Path == "/api/v1/athlete/0/activities":
 			w.Header().Set("Content-Type", "application/json")
 			io.WriteString(w, list)
+		case r.URL.Path == "/api/v1/athlete/0/sport-settings":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `[{"id":7,"types":["Ride"],"ftp":250,"indoor_ftp":245,"lthr":168,"max_hr":186,"power_zones":[55,75,90,105,120,150,999],"hr_zones":[130,150,160,170,180,186]}]`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1276,16 +1282,23 @@ func TestServeDropsIntervalsStateWhenOff(t *testing.T) {
 	tok := makeToken(t, cfg, "read")
 	r := startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg))
 	cs := privateSession(t, r, tok)
-	eventually(t, "the intervals.icu sync", func() bool { return slices.Contains(syncTypes(t, cs), "intervals_activities") })
+	eventually(t, "the intervals.icu sync", func() bool {
+		types := syncTypes(t, cs)
+		return slices.Contains(types, "intervals_activities") && slices.Contains(types, "intervals_profile")
+	})
 	cs.Close()
 	if err := r.stop(t); err != nil {
 		t.Fatal(err)
 	}
+	if n := len(storedSportSettings(t, cfg)); n != 1 {
+		t.Fatalf("stored sport settings with the source on = %d, want 1", n)
+	}
 
 	cfg.IntervalsAPIKey = ""
-	cs = privateSession(t, startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg)), tok)
-	if types := syncTypes(t, cs); slices.Contains(types, "intervals_activities") {
-		t.Errorf("get_status data types %v still include intervals_activities", types)
+	r = startServeSources(t, cfg, testTel(t), emptyGarmin{}, intervalsSource(cfg, fake.URL), testKeys(t, cfg))
+	cs = privateSession(t, r, tok)
+	if types := syncTypes(t, cs); slices.Contains(types, "intervals_activities") || slices.Contains(types, "intervals_profile") {
+		t.Errorf("get_status data types %v still include an intervals.icu type", types)
 	}
 	today := civil.Of(time.Now(), cfg.TZ)
 	var acts struct {
@@ -1297,6 +1310,29 @@ func TestServeDropsIntervalsStateWhenOff(t *testing.T) {
 	if len(acts.Activities) != 1 || acts.Activities[0].ID != -55751783 {
 		t.Errorf("activities %+v, want the stored ride -55751783", acts.Activities)
 	}
+	cs.Close()
+	if err := r.stop(t); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(storedSportSettings(t, cfg)); n != 0 {
+		t.Errorf("stored sport settings with the source off = %d, want 0", n)
+	}
+}
+
+// storedSportSettings reads the sport settings from cfg's database; the
+// server must be stopped.
+func storedSportSettings(t *testing.T, cfg *config.Config) []store.SportSettings {
+	t.Helper()
+	db, err := store.Open(context.Background(), filepath.Join(cfg.DataDir, "coachd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ss, err := db.ListSportSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ss
 }
 
 // Demo mode ignores the key with one log line and never calls intervals.icu.

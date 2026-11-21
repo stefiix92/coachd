@@ -246,6 +246,8 @@ Added after the first week of use, on the agent's feedback. **[owner]**, 2026-11
 - Migration `0017` adds the columns, fills them from the stored raw JSON and sets `unavailable`
   intervals.icu activities that have a `file_type` back to `pending`.
 
+The runner's thresholds and zones are read in the same sync cycle; see `checkin-profile.md` §4.
+
 ## 10. What the agent sees
 
 - `list_activities` and `get_activity`: a new field `source`, `garmin` or `intervals_icu`. The `id`

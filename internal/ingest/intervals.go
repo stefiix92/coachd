@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -335,4 +336,87 @@ func (s *Service) noteIntervalsPause(ctx context.Context, err error) bool {
 	s.log.WarnContext(ctx, "intervals.icu rate limited", "data_type", TypeIntervals,
 		"retry_after_s", int64(until.Sub(s.now()).Seconds()))
 	return true
+}
+
+// Bounds on a stored sport-settings entry.
+const (
+	maxSportTypeLen = 32
+	maxZones        = 20
+)
+
+// MapSportSettings converts one sport-settings entry. Sport types stay only
+// when 1 to 32 ASCII letters; a threshold of zero or less is unknown (nil);
+// a zone array is capped at 20 entries and dropped whole if any value is
+// negative; an unparseable Updated is nil.
+func MapSportSettings(s intervals.SportSettings) store.SportSettings {
+	out := store.SportSettings{
+		Source: "intervals_icu", SourceID: strconv.FormatInt(s.ID, 10),
+		FTPW: positiveInt(s.FTP), IndoorFTPW: positiveInt(s.IndoorFTP), ThresholdHRBpm: positiveInt(s.LTHR), MaxHRBpm: positiveInt(s.MaxHR),
+		PowerZonesPct: zones(s.PowerZones), HRZonesBpm: zones(s.HRZones),
+	}
+	if s.ThresholdPace != nil && *s.ThresholdPace > 0 {
+		out.ThresholdSpeedMps = s.ThresholdPace
+	}
+	for _, t := range s.Types {
+		if validSportType(t) {
+			out.Sports = append(out.Sports, t)
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, s.Updated); err == nil {
+		out.UpdatedAt = &t
+	}
+	return out
+}
+
+func positiveInt(v *int) *int {
+	if v == nil || *v <= 0 {
+		return nil
+	}
+	return v
+}
+
+func zones(z []int) []int {
+	if slices.ContainsFunc(z, func(v int) bool { return v < 0 }) {
+		return nil
+	}
+	if len(z) > maxZones {
+		z = z[:maxZones]
+	}
+	return z
+}
+
+func validSportType(t string) bool {
+	if t == "" || len(t) > maxSportTypeLen {
+		return false
+	}
+	for _, r := range t {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+// syncProfile replaces the stored intervals.icu sport settings with the ones
+// listed now and returns how many entries it stored. It shares the activities'
+// pause. On any failure the stored entries stay.
+func (s *Service) syncProfile(ctx context.Context) (int, error) {
+	if err := s.checkIntervalsPause(); err != nil {
+		return 0, err
+	}
+	list, raw, err := s.opts.Intervals.ListSportSettings(ctx)
+	if err != nil {
+		return 0, s.intervalsErr(ctx, err)
+	}
+	mapped := make([]store.SportSettings, 0, len(list))
+	for _, e := range list {
+		mapped = append(mapped, MapSportSettings(e))
+	}
+	if err := s.db.SaveRaw(ctx, "intervals_profile", "sport-settings", raw); err != nil {
+		return 0, err
+	}
+	if err := s.db.ReplaceSportSettings(ctx, "intervals_icu", mapped); err != nil {
+		return 0, err
+	}
+	return len(mapped), nil
 }

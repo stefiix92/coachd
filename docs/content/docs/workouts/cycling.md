@@ -5,7 +5,7 @@ weight: 1
 
 ## Power targets
 
-A cycling step can target power in **% of FTP** or in **watts** (1 to 1500 W), never both in one step. coachd doesn't store your FTP: a % of FTP target travels as is, and the watch or Zwift applies its own FTP when you ride.
+A cycling step can target power in **% of FTP** or in **watts** (1 to 1500 W), never both in one step. A % of FTP target travels as is, and the watch or Zwift applies its own FTP when you ride. With [intervals.icu](/docs/install/intervals/) connected, an agent can read the FTP set there with `get_profile`, to work out watts; coachd does not use it in a workout.
 
 ## On a smart trainer
 

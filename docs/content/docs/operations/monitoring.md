@@ -54,7 +54,7 @@ The first start downloads the pinned VictoriaLogs plugin from grafana.com, so it
 
 | Alert | Fires when |
 |---|---|
-| `GarminSyncFailing` (critical) | a Garmin data type hasn't synced for 3 h, or coachd stopped reporting ([intervals.icu](/docs/install/intervals/) is left out) |
+| `GarminSyncFailing` (critical) | a Garmin data type hasn't synced for 3 h, or coachd stopped reporting ([intervals.icu](/docs/install/intervals/) data types are left out) |
 | `GarminKeyExpiring` | the Garmin key expires within 7 days |
 | `AuthFailureSpike` | more than 20 authentication failures in 10 min on the public or private lane |
 | `WorkoutDeliveryFailed` | a workout the watch fetched wasn't confirmed within 15 min |
