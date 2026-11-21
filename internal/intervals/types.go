@@ -63,3 +63,18 @@ type Item struct {
 	V   Activity
 	Raw json.RawMessage
 }
+
+// SportSettings is one entry of the athlete's per-sport settings. Pointer
+// fields are nil when the API sends null. Zone names are not decoded.
+type SportSettings struct {
+	ID            int64    `json:"id"`
+	Types         []string `json:"types"`
+	FTP           *int     `json:"ftp"`
+	IndoorFTP     *int     `json:"indoor_ftp"`
+	LTHR          *int     `json:"lthr"`
+	MaxHR         *int     `json:"max_hr"`
+	ThresholdPace *float64 `json:"threshold_pace"`
+	PowerZones    []int    `json:"power_zones"`
+	HRZones       []int    `json:"hr_zones"`
+	Updated       string   `json:"updated"`
+}

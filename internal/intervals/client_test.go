@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -283,5 +284,105 @@ func TestListActivitiesRealShape(t *testing.T) {
 	}
 	if gpx.FileType != "gpx" || gpx.Source != "UPLOAD" || gpx.AverageWatts != nil || gpx.ElapsedTime == nil || *gpx.ElapsedTime != 5487 {
 		t.Errorf("gpx %+v", gpx)
+	}
+}
+
+// TestListSportSettingsRealShape decodes entries shaped like a live response
+// (testdata/sport_settings.json): extra fields are ignored, nulls are nil.
+// Values are made up.
+func TestListSportSettingsRealShape(t *testing.T) {
+	body, err := os.ReadFile("testdata/sport_settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/athlete/0/sport-settings" {
+			t.Errorf("path %s", r.URL.Path)
+		}
+		if u, p, ok := r.BasicAuth(); !ok || u != "API_KEY" || p != testKey {
+			t.Errorf("auth %q %q %v", u, p, ok)
+		}
+		w.Write(body)
+	})
+	got, raw, err := c.ListSportSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, body) {
+		t.Errorf("raw body changed")
+	}
+	if len(got) != 3 {
+		t.Fatalf("len %d", len(got))
+	}
+	ride, other, swim := got[0], got[1], got[2]
+	if ride.ID != 900001 || len(ride.Types) != 2 || ride.Types[0] != "Ride" || ride.Types[1] != "VirtualRide" ||
+		ride.FTP == nil || *ride.FTP != 240 || ride.LTHR == nil || *ride.LTHR != 170 ||
+		ride.MaxHR == nil || *ride.MaxHR != 190 || ride.IndoorFTP != nil || ride.ThresholdPace != nil ||
+		ride.Updated != "2024-05-27T10:29:50.935+00:00" {
+		t.Errorf("ride %+v", ride)
+	}
+	if !slices.Equal(ride.PowerZones, []int{55, 75, 90, 105, 120, 150, 999}) ||
+		!slices.Equal(ride.HRZones, []int{140, 155, 165, 175, 180, 185, 190}) {
+		t.Errorf("zones %v %v", ride.PowerZones, ride.HRZones)
+	}
+	if other.ID != 900002 || other.FTP != nil || other.IndoorFTP != nil || other.LTHR != nil || other.MaxHR != nil ||
+		other.ThresholdPace != nil || other.PowerZones != nil || other.HRZones != nil || other.Updated != "" {
+		t.Errorf("other %+v", other)
+	}
+	if swim.ThresholdPace == nil || *swim.ThresholdPace != 0.9 {
+		t.Errorf("swim %+v", swim)
+	}
+}
+
+func TestListSportSettingsSkipsBadEntry(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"id":1,"ftp":"x"},{"id":2,"ftp":200}]`))
+	})
+	got, _, err := c.ListSportSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != 2 || got[0].FTP == nil || *got[0].FTP != 200 {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestListSportSettingsErrors(t *testing.T) {
+	fixed := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	call := func(code int, hdr, body string) (*Client, *httptest.Server, error) {
+		c, srv := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+			if hdr != "" {
+				w.Header().Set("Retry-After", hdr)
+			}
+			w.WriteHeader(code)
+			w.Write([]byte(body))
+		})
+		c.now = func() time.Time { return fixed }
+		_, _, err := c.ListSportSettings(context.Background())
+		return c, srv, err
+	}
+	_, srv401, e401 := call(401, "", "body mentions "+testKey)
+	_, srv429, e429 := call(429, "120", "")
+	_, srvBad, eBad := call(200, "", `{"a":1}`)
+	if !errors.Is(e401, ErrUnauthorized) {
+		t.Errorf("401: %v", e401)
+	}
+	var rl *RateLimitedError
+	if !errors.As(e429, &rl) || !rl.RetryAt.Equal(fixed.Add(120*time.Second)) {
+		t.Errorf("429: %v", e429)
+	}
+	if eBad == nil || eBad.Error() != "intervals: sport-settings: decode failed" {
+		t.Errorf("decode: %v", eBad)
+	}
+	b64 := base64.StdEncoding.EncodeToString([]byte("API_KEY:" + testKey))
+	for name, err := range map[string]error{"401": e401, "429": e429, "decode": eBad} {
+		if err == nil {
+			continue
+		}
+		s := err.Error()
+		if strings.Contains(s, testKey) || strings.Contains(s, b64) ||
+			strings.Contains(s, srv401.URL) || strings.Contains(s, srv429.URL) || strings.Contains(s, srvBad.URL) {
+			t.Errorf("%s leaks: %s", name, s)
+		}
 	}
 }

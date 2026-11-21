@@ -121,6 +121,28 @@ func (c *Client) ListActivities(ctx context.Context, from, to civil.Date) ([]Ite
 	return items, nil
 }
 
+// ListSportSettings returns the athlete's per-sport settings and the raw
+// response body. An entry that does not decode is skipped.
+func (c *Client) ListSportSettings(ctx context.Context) ([]SportSettings, []byte, error) {
+	body, err := c.get(ctx, "sport-settings", "/api/v1/athlete/0/sport-settings", maxListBody)
+	if err != nil {
+		return nil, nil, err
+	}
+	var raws []json.RawMessage
+	if err := json.Unmarshal(body, &raws); err != nil {
+		return nil, nil, fmt.Errorf("intervals: sport-settings: decode failed")
+	}
+	out := make([]SportSettings, 0, len(raws))
+	for _, r := range raws {
+		var s SportSettings
+		if err := json.Unmarshal(r, &s); err != nil {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, body, nil
+}
+
 // DownloadFile returns the activity's original file, decompressed. A body
 // that starts with the gzip magic is gunzipped; any other body is returned
 // as is. A file over 64 MiB, compressed or decompressed, is an error.
