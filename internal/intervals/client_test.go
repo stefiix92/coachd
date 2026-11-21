@@ -116,6 +116,26 @@ func TestDownloadFilePlainBody(t *testing.T) {
 	}
 }
 
+func TestDownloadGeneratedFIT(t *testing.T) {
+	want := []byte("generated fit")
+	for _, body := range [][]byte{want, gz(t, want)} {
+		c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/activity/i1/fit-file" {
+				t.Errorf("path %s", r.URL.Path)
+			}
+			w.Write(body)
+		})
+		got, err := c.DownloadGeneratedFIT(context.Background(), "i1")
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("%q %v", got, err)
+		}
+	}
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	if _, err := c.DownloadGeneratedFIT(context.Background(), "i1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("404: err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestDownloadFileTooLarge(t *testing.T) {
 	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(gz(t, make([]byte, maxFileBody+1)))

@@ -39,9 +39,9 @@ gain power, for every source. **[call]**
   matching finds nothing; that is correct.
 - intervals.icu OAuth, webhooks, or more than one athlete. Personal API key and polling only.
 - Changing the key on the page. It is a secret file, set once; it does not expire.
-- Cadence, running power, or power on the activity summary row.
-- Activities whose original file is not FIT get a summary but no laps or series (no GPX or TCX
-  decoding).
+- Cadence or running power.
+- Decoding GPX or TCX. (An activity whose original is not FIT gets laps and series from the FIT
+  file intervals.icu generates, §9a.)
 
 **Anti-goals**
 - The intervals.icu key in any log, span, metric, audit row, page, MCP result or backup.
@@ -223,11 +223,35 @@ span like every other type.
 - The cached detail changes shape, so the migration also runs `DELETE FROM activity_detail`; the
   cache rebuilds from stored FIT files as `store/detail.go` describes. The golden test is updated.
 
+## 9a. Power and intervals.icu's estimates on the summary (0.6.2)
+
+Added after the first week of use, on the agent's feedback. **[owner]**, 2026-11-21.
+
+- **Average power on the summary:** `avg_power_w` on every activity, from the list entry of either
+  source (Garmin `avgPower`, intervals.icu `icu_average_watts`); null when absent or zero. It is a
+  measurement, so it sits beside heart rate, not under a derived block.
+- **`intervals_derived`:** `training_load` (`icu_training_load`), `normalized_power_w`
+  (`icu_weighted_avg_watts`) and `intensity_factor` (`icu_intensity` / 100, so 0.65). All null for
+  a Garmin activity, as `garmin_derived` is for an intervals.icu one. They are intervals.icu's
+  estimates on intervals.icu's scales and depend on the FTP set there: coachd passes them on as
+  numbers, never adds them to Garmin's values, and computes nothing from them. **[call]** No weekly
+  sum: coachd sums no training load for Garmin either; the agent adds up what it needs.
+- **Generated FIT as fallback:** when the original file is no usable FIT (a GPX, a TCX, a 404), the
+  FIT worker asks for `GET /api/v1/activity/{id}/fit-file`, the FIT file intervals.icu builds from
+  the activity's streams, and stores that one under the same path. So an activity is `pending`
+  when its list entry has any `file_type`, and `unavailable` only without one (a manual entry) or
+  when neither file is a usable FIT. Checked live: a GPX upload gave one lap and a full series
+  with heart rate, altitude and distance. The stored file is then not the original, which stays
+  on intervals.icu. **[call]**
+- Migration `0017` adds the columns, fills them from the stored raw JSON and sets `unavailable`
+  intervals.icu activities that have a `file_type` back to `pending`.
+
 ## 10. What the agent sees
 
 - `list_activities` and `get_activity`: a new field `source`, `garmin` or `intervals_icu`. The `id`
   description becomes "coachd activity ID" and says intervals.icu activities have negative IDs.
   `garmin_derived` is all null for an intervals.icu activity.
+- `avg_power_w` and `intervals_derived` on both tools (§9a).
 - `get_status`: the new data type appears among the sync states when configured.
 - `request_sync` runs it with the rest.
 - No new tool, and no agent path to the key or to intervals.icu itself.

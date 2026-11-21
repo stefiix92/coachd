@@ -52,10 +52,11 @@ coachd reads the key only at start. The first sync reaches back `COACHD_BACKFILL
 ## What comes through
 
 - Every activity in intervals.icu except those that came from Strava (intervals.icu passes on only an empty stub for them) and those that came from Garmin Connect (coachd has them from Garmin already).
-- Its original FIT file, decoded like Garmin's: laps, series, heart rate and power. An activity whose original is not a FIT file (GPX, TCX) gets a summary only.
-- Not intervals.icu's own training load and fitness numbers: coachd computes its own, and your agent judges.
+- Its original FIT file, decoded like Garmin's: laps, series, heart rate and power. When the original is not a FIT file (GPX, TCX), coachd takes the FIT file intervals.icu generates from it instead, so the activity still has laps and a series; a manual entry with no file has a summary only.
+- Its average power, and intervals.icu's own estimates under `intervals_derived`: training load, normalized power and intensity factor. They are on intervals.icu's scales and depend on the FTP you set there, so they are never added to Garmin's values; your agent weighs the two.
+- Not intervals.icu's fitness, fatigue and form numbers.
 
-To an agent, such an activity has `source` `intervals_icu` and a negative `id` (`i55751783` on intervals.icu is `-55751783` in coachd), and its `garmin_derived` is all null. `get_status` lists the data type `intervals_activities`. An activity of the last 14 days that you delete in intervals.icu is removed from coachd at a following sync.
+To an agent, such an activity has `source` `intervals_icu` and a negative `id` (`i55751783` on intervals.icu is `-55751783` in coachd), and its `garmin_derived` is all null; a Garmin activity's `intervals_derived` is all null. `get_status` lists the data type `intervals_activities`. An activity of the last 14 days that you delete in intervals.icu is removed from coachd at a following sync.
 
 ## One session, two copies
 

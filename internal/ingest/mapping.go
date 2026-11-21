@@ -88,6 +88,7 @@ func MapActivity(dto garmin.ActivityDTO, tz *time.Location) (store.Activity, err
 		FITStatus: fit,
 		Source:    store.SourceGarmin,
 		HasPower:  deref(dto.AvgPower) > 0,
+		AvgPowerW: positive(dto.AvgPower),
 	}, nil
 }
 

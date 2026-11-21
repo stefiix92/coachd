@@ -6,6 +6,18 @@ The release workflow publishes the section whose heading matches the pushed tag 
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-21
+
+### Added
+
+- **Average power on activities:** `list_activities` and `get_activity` show `avg_power_w`, for Garmin and intervals.icu activities; null when the source has none.
+- **`intervals_derived`:** an intervals.icu activity carries intervals.icu's own training load, normalized power and intensity factor. They are on intervals.icu's scales and depend on the FTP set there, so they are never added to `garmin_derived` values; all null for a Garmin activity.
+- **Laps and series for GPX and TCX uploads:** when an intervals.icu activity's original file is not a FIT file, coachd takes the FIT file intervals.icu generates from it. Such activities had a summary only.
+
+### Changed
+
+- A new migration fills the new values for stored activities from their raw data and queues the FIT download for intervals.icu activities that had none. An AI client connected before the upgrade holds the old tool definitions and may reject the new fields: reconnect it.
+
 ## [0.6.1] - 2026-11-20
 
 ### Added

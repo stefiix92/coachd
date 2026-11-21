@@ -47,6 +47,7 @@ var _ Garmin = (*garmin.Client)(nil)
 type Intervals interface {
 	ListActivities(ctx context.Context, from, to civil.Date) ([]intervals.Item, error)
 	DownloadFile(ctx context.Context, id string) ([]byte, error)
+	DownloadGeneratedFIT(ctx context.Context, id string) ([]byte, error)
 	// ActivityExists reports false with a nil error only on a 404.
 	ActivityExists(ctx context.Context, id string) (bool, error)
 }

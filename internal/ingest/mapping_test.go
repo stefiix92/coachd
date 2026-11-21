@@ -73,6 +73,9 @@ func TestMapActivityHasPower(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if (a.AvgPowerW != nil) != tc.want || (tc.want && *a.AvgPowerW != *tc.watts) {
+			t.Errorf("%s: avg power = %v, want set: %v", tc.name, a.AvgPowerW, tc.want)
+		}
 		if a.HasPower != tc.want || a.Source != store.SourceGarmin || a.SourceID != "" {
 			t.Errorf("%s: has_power/source/source_id = %v %q %q, want %v garmin \"\"", tc.name, a.HasPower, a.Source, a.SourceID, tc.want)
 		}

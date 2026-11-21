@@ -44,7 +44,7 @@ All training evaluation and planning belongs to the AI agent and the runner. Nev
   - Enforce this in coachd; never rely on client-side confirmation or tool annotations.
 - **Proposals are immutable after `pending`.** Changes are new proposals with `replaces`. Every state transition goes to the audit log.
 - **Summaries are pure and deterministic, numbers only.** They are computed at ingest. Never output verdict words like "ready" or "should".
-- **Ingest is idempotent.** Upserts are keyed by activity ID (Garmin's, or the negated intervals.icu ID) or calendar date. Keep raw JSON and original FIT files.
+- **Ingest is idempotent.** Upserts are keyed by activity ID (Garmin's, or the negated intervals.icu ID) or calendar date. Keep raw JSON and original FIT files (for an intervals.icu activity whose original is a GPX or TCX, the FIT file intervals.icu generates).
 - **The Garmin Personal API key and the intervals.icu API key stay server-side.** Never send them to agents, logs, telemetry, the web page or backups (Garmin: Supplemental Terms §1).
   - Garmin tokens last 24 h with no refresh: re-exchange the key daily.
   - Poll conservatively; honour 429 and `Retry-After`.

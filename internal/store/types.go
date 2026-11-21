@@ -37,6 +37,12 @@ type ActivityGarmin struct {
 	TrainingLoad, AerobicTE, AnaerobicTE, VO2Max, TSS *float64
 }
 
+// ActivityIntervals holds intervals.icu's own estimates; all nil for a Garmin
+// activity. IntensityFactor is a fraction (0.65), from intervals.icu's FTP.
+type ActivityIntervals struct {
+	TrainingLoad, NormalizedPowerW, IntensityFactor *float64
+}
+
 // Source names where an activity came from.
 type Source string
 
@@ -68,6 +74,9 @@ type Activity struct {
 	SourceID string
 	// HasPower: the source's list entry reports average power above zero.
 	HasPower bool
+	// AvgPowerW is that average power in watts; nil when the source has none.
+	AvgPowerW *float64
+	Intervals ActivityIntervals
 	// HiddenBy is the ID of the richer copy of the same session; nil when shown.
 	// UpsertActivity never writes it, only SetHiddenBy.
 	HiddenBy *int64

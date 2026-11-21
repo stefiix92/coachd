@@ -839,6 +839,53 @@ func TestFetchFITIntervalsNotFIT(t *testing.T) {
 	}
 }
 
+// An original that is no FIT file (a GPX) falls back to the FIT file
+// intervals.icu generates: that one is stored and decoded.
+func TestFetchFITIntervalsGeneratedFallback(t *testing.T) {
+	body := buildFIT(t, 600)
+	for name, orig := range map[string][]byte{
+		"gpx original": []byte(`<?xml version="1.0"?><gpx version="1.1"><trk></trk></gpx>`),
+		"no original":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fi := newFakeIntervals()
+			if orig != nil {
+				fi.files[idRide] = orig
+			}
+			fi.gen[idRide] = body
+			e := newIntervalsEnv(t, newFake(), fi, nil)
+			id := pendingIntervals(t, e, idRide, rideDate)
+			ctx := context.Background()
+			e.svc.drainFIT(ctx)
+			e.svc.drainFIT(ctx)
+			wantFIT(t, e, id, store.FITStored, "fit/2026/i55751783.fit", 0)
+			got, err := os.ReadFile(filepath.Join(e.dir, "fit", "2026", "i55751783.fit"))
+			if err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("stored file differs from the generated FIT (%v)", err)
+			}
+			if fi.fileCount(idRide) != 1 || fi.genCalls[idRide] != 1 {
+				t.Errorf("downloads: original %d, generated %d; want 1 and 1", fi.fileCount(idRide), fi.genCalls[idRide])
+			}
+			if d, err := e.db.GetActivityDetail(ctx, id); err != nil || len(d.Laps) != 3 {
+				t.Fatalf("detail = %d laps, %v; want 3", len(d.Laps), err)
+			}
+		})
+	}
+}
+
+// A FIT original never asks for the generated file.
+func TestFetchFITIntervalsOriginalSkipsGenerated(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.files[idRide] = buildFIT(t, 60)
+	e := newIntervalsEnv(t, newFake(), fi, nil)
+	id := pendingIntervals(t, e, idRide, rideDate)
+	e.svc.drainFIT(context.Background())
+	wantFIT(t, e, id, store.FITStored, "fit/2026/i55751783.fit", 0)
+	if fi.genCalls[idRide] != 0 {
+		t.Errorf("generated FIT requested %d times, want 0", fi.genCalls[idRide])
+	}
+}
+
 func TestFetchFITIntervalsNotFound(t *testing.T) {
 	fi := newFakeIntervals() // no file: 404
 	e := newIntervalsEnv(t, newFake(), fi, nil)

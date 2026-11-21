@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 const (
 	miList   = "intervals.ListActivities"
 	miFile   = "intervals.DownloadFile"
+	miGen    = "intervals.DownloadGeneratedFIT"
 	miExists = "intervals.ActivityExists"
 )
 
@@ -40,11 +42,14 @@ type fakeIntervals struct {
 	files     map[string][]byte // DownloadFile body per id; any other id is a 404
 	fileErr   map[string]error  // DownloadFile error per id
 	fileCalls map[string]int
+	gen       map[string][]byte // DownloadGeneratedFIT body per id; any other id is a 404
+	genCalls  map[string]int
 }
 
 func newFakeIntervals() *fakeIntervals {
 	return &fakeIntervals{errs: map[string]error{}, listErrs: map[int]error{}, calls: map[string]int{}, deleted: map[string]bool{},
-		existsErr: map[string]error{}, files: map[string][]byte{}, fileErr: map[string]error{}, fileCalls: map[string]int{}}
+		existsErr: map[string]error{}, files: map[string][]byte{}, fileErr: map[string]error{}, fileCalls: map[string]int{},
+		gen: map[string][]byte{}, genCalls: map[string]int{}}
 }
 
 func (f *fakeIntervals) fileCount(id string) int {
@@ -125,6 +130,19 @@ func (f *fakeIntervals) DownloadFile(ctx context.Context, id string) ([]byte, er
 		return nil, err
 	}
 	if b, ok := f.files[id]; ok {
+		return b, nil
+	}
+	return nil, intervals.ErrNotFound
+}
+
+func (f *fakeIntervals) DownloadGeneratedFIT(ctx context.Context, id string) ([]byte, error) {
+	if err := f.enter(ctx, miGen); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.genCalls[id]++
+	if b, ok := f.gen[id]; ok {
 		return b, nil
 	}
 	return nil, intervals.ErrNotFound
@@ -253,7 +271,7 @@ func TestMapIntervalsActivity(t *testing.T) {
 		power  bool
 	}{
 		{"manual", variant(func(v *intervals.Activity) { v.Source, v.FileType = "MANUAL", "" }), true, store.FITUnavailable, true},
-		{"gpx file", variant(func(v *intervals.Activity) { v.FileType = "gpx" }), false, store.FITUnavailable, true},
+		{"gpx file", variant(func(v *intervals.Activity) { v.FileType = "gpx" }), false, store.FITPending, true},
 		{"zero watts", variant(func(v *intervals.Activity) { v.AverageWatts = fp(0) }), false, store.FITPending, false},
 		{"no watts", variant(func(v *intervals.Activity) { v.AverageWatts = nil }), false, store.FITPending, false},
 	} {
@@ -721,7 +739,7 @@ func TestIntervalsHaveNoBackfill(t *testing.T) {
 
 // TestMapIntervalsRealShape maps the entries of a live-shaped list response:
 // the MyWhoosh ride is imported with power and a pending FIT file, the Strava
-// stub is not imported, the GPX upload gets a summary only.
+// stub is not imported, the GPX upload waits for the FIT file intervals.icu generates.
 func TestMapIntervalsRealShape(t *testing.T) {
 	raw, err := os.ReadFile("../intervals/testdata/list_real.json")
 	if err != nil {
@@ -737,7 +755,10 @@ func TestMapIntervalsRealShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ride.ID != -900000001 || ride.Sport != store.SportCycling || ride.FITStatus != store.FITPending || !ride.HasPower ||
-		ride.Date.String() != "2026-11-20" || ride.DurationS != 3483 || ride.AvgHR == nil || *ride.AvgHR != 143 {
+		ride.Date.String() != "2026-11-20" || ride.DurationS != 3483 || ride.AvgHR == nil || *ride.AvgHR != 143 ||
+		ride.AvgPowerW == nil || *ride.AvgPowerW != 151 || ride.Intervals.TrainingLoad == nil || *ride.Intervals.TrainingLoad != 41 ||
+		ride.Intervals.NormalizedPowerW == nil || *ride.Intervals.NormalizedPowerW != 160 ||
+		ride.Intervals.IntensityFactor == nil || math.Abs(*ride.Intervals.IntensityFactor-0.652) > 1e-9 {
 		t.Errorf("ride = %+v", ride)
 	}
 	if _, err := MapIntervalsActivity(acts[1], tz); !errors.Is(err, errNotImported) {
@@ -747,7 +768,8 @@ func TestMapIntervalsRealShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gpx.FITStatus != store.FITUnavailable || gpx.HasPower || gpx.DurationS != 5487 {
+	if gpx.FITStatus != store.FITPending || gpx.HasPower || gpx.AvgPowerW != nil || gpx.DurationS != 5487 ||
+		gpx.Intervals.TrainingLoad == nil || *gpx.Intervals.TrainingLoad != 73 || gpx.Intervals.NormalizedPowerW != nil {
 		t.Errorf("gpx = %+v", gpx)
 	}
 }

@@ -93,9 +93,16 @@ func MapIntervalsActivity(a intervals.Activity, tz *time.Location) (store.Activi
 	if !ok {
 		sport = store.SportOther
 	}
+	// With a file there is a FIT to fetch: the original, or the one
+	// intervals.icu generates when the original is a GPX or TCX.
 	fit := store.FITUnavailable
-	if a.FileType == "fit" {
+	if a.FileType != "" {
 		fit = store.FITPending
+	}
+	var intensity *float64
+	if a.Intensity != nil {
+		f := *a.Intensity / 100
+		intensity = &f
 	}
 	date := civil.Of(local, tz)
 	return store.Activity{
@@ -118,7 +125,21 @@ func MapIntervalsActivity(a intervals.Activity, tz *time.Location) (store.Activi
 		Source:        store.SourceIntervals,
 		SourceID:      a.ID,
 		HasPower:      deref(a.AverageWatts) > 0,
+		AvgPowerW:     positive(a.AverageWatts),
+		Intervals: store.ActivityIntervals{
+			TrainingLoad:     a.TrainingLoad,
+			NormalizedPowerW: positive(a.WeightedAvgWatts),
+			IntensityFactor:  intensity,
+		},
 	}, nil
+}
+
+// positive returns v, or nil when it is absent or not above zero.
+func positive(v *float64) *float64 {
+	if v == nil || *v <= 0 {
+		return nil
+	}
+	return v
 }
 
 // fetchIntervals lists intervals.icu activities for [from, to] in calls of at
