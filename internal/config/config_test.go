@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -507,5 +508,82 @@ func TestIntervalsKeyConfig(t *testing.T) {
 	if _, err := Load(env(map[string]string{"COACHD_TIMEZONE": "UTC", "COACHD_INTERVALS_API_KEY_FILE": empty})); err == nil ||
 		err.Error() != "COACHD_INTERVALS_API_KEY_FILE: file is empty" {
 		t.Errorf("empty file: err = %v, want COACHD_INTERVALS_API_KEY_FILE: file is empty", err)
+	}
+}
+
+func TestWebhookEventsDefault(t *testing.T) {
+	c, err := Load(baseEnv(map[string]string{"COACHD_WEBHOOK_URL": "https://n8n.example.com/h"}))
+	if err != nil || !reflect.DeepEqual(c.WebhookEvents, []string{"activity.stored"}) {
+		t.Fatalf("URL set, list unset: %v %v", err, c.WebhookEvents)
+	}
+	// Compose passes an unset list as empty: that is the default.
+	c, err = Load(baseEnv(map[string]string{"COACHD_WEBHOOK_URL": "https://n8n.example.com/h", "COACHD_WEBHOOK_EVENTS": ""}))
+	if err != nil || !reflect.DeepEqual(c.WebhookEvents, []string{"activity.stored"}) {
+		t.Fatalf("URL set, list empty: %v %v", err, c.WebhookEvents)
+	}
+	c, err = Load(baseEnv(nil))
+	if err != nil || len(c.WebhookEvents) != 0 {
+		t.Fatalf("no URL: %v %v", err, c.WebhookEvents)
+	}
+}
+
+func TestWebhookEventsList(t *testing.T) {
+	c, err := Load(baseEnv(map[string]string{
+		"COACHD_WEBHOOK_URL": "https://n8n.example.com/h", "COACHD_WEBHOOK_EVENTS": "health.day_ready, week.closed",
+	}))
+	if err != nil || !reflect.DeepEqual(c.WebhookEvents, []string{"health.day_ready", "week.closed"}) {
+		t.Fatalf("%v %v", err, c.WebhookEvents)
+	}
+	// Duplicates are dropped silently.
+	c, err = Load(baseEnv(map[string]string{
+		"COACHD_WEBHOOK_URL": "https://n8n.example.com/h", "COACHD_WEBHOOK_EVENTS": "week.closed,activity.stored, week.closed",
+	}))
+	if err != nil || !reflect.DeepEqual(c.WebhookEvents, []string{"week.closed", "activity.stored"}) {
+		t.Fatalf("duplicates: %v %v", err, c.WebhookEvents)
+	}
+}
+
+func TestWebhookEventsUnknown(t *testing.T) {
+	for in, want := range map[string]string{
+		"activity.stored,run.done": `COACHD_WEBHOOK_EVENTS: unknown event "run.done"`,
+		"activity.stored,":         `COACHD_WEBHOOK_EVENTS: unknown event ""`,
+	} {
+		_, err := Load(baseEnv(map[string]string{"COACHD_WEBHOOK_URL": "https://n8n.example.com/h", "COACHD_WEBHOOK_EVENTS": in}))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want one containing %s", in, err, want)
+		}
+	}
+}
+
+func TestWebhookEventsWithoutURL(t *testing.T) {
+	_, err := Load(baseEnv(map[string]string{"COACHD_WEBHOOK_EVENTS": "week.closed"}))
+	if err == nil || !strings.Contains(err.Error(), "COACHD_WEBHOOK_EVENTS requires COACHD_WEBHOOK_URL") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNudgesNeedNtfy(t *testing.T) {
+	_, err := Load(baseEnv(map[string]string{"COACHD_NUDGES": "true"}))
+	if err == nil || !strings.Contains(err.Error(), "COACHD_NUDGES requires COACHD_NTFY_URL") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNudgesDefaultOff(t *testing.T) {
+	c, err := Load(baseEnv(nil))
+	if err != nil || c.Nudges {
+		t.Fatalf("unset: %v %v", err, c.Nudges)
+	}
+	c, err = Load(baseEnv(map[string]string{"COACHD_NUDGES": ""}))
+	if err != nil || c.Nudges {
+		t.Fatalf("empty: %v %v", err, c.Nudges)
+	}
+	c, err = Load(baseEnv(withPublicLane(map[string]string{"COACHD_NTFY_URL": "https://ntfy.example.com/t", "COACHD_NUDGES": "true"})))
+	if err != nil || !c.Nudges {
+		t.Fatalf("true with ntfy: %v %v", err, c.Nudges)
+	}
+	_, err = Load(baseEnv(withPublicLane(map[string]string{"COACHD_NTFY_URL": "https://ntfy.example.com/t", "COACHD_NUDGES": "maybe"})))
+	if err == nil || !strings.Contains(err.Error(), "COACHD_NUDGES") {
+		t.Fatalf("maybe: err = %v", err)
 	}
 }
