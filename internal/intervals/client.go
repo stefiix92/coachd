@@ -122,7 +122,8 @@ func (c *Client) ListActivities(ctx context.Context, from, to civil.Date) ([]Ite
 }
 
 // ListSportSettings returns the athlete's per-sport settings and the raw
-// response body. An entry that does not decode is skipped.
+// response body. An entry that does not decode is skipped; a non-empty array
+// of which none decodes is an error, so a shape change cannot wipe the profile.
 func (c *Client) ListSportSettings(ctx context.Context) ([]SportSettings, []byte, error) {
 	body, err := c.get(ctx, "sport-settings", "/api/v1/athlete/0/sport-settings", maxListBody)
 	if err != nil {
@@ -139,6 +140,9 @@ func (c *Client) ListSportSettings(ctx context.Context) ([]SportSettings, []byte
 			continue
 		}
 		out = append(out, s)
+	}
+	if len(raws) > 0 && len(out) == 0 {
+		return nil, nil, fmt.Errorf("intervals: sport-settings: decode failed")
 	}
 	return out, body, nil
 }

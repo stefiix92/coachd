@@ -51,7 +51,7 @@ The shape is the same for any agent platform:
 1. **Receiver.** Run any automation that accepts the webhook POST (n8n, Home Assistant, a small script behind your reverse proxy). It reads `event` and `date` from the body.
 2. **Agent run.** The automation starts a headless agent run with the coachd MCP server connected, and passes a prompt that names the event and the date. The exact command, and how to give the run an MCP server and a coachd token, depend on your platform: check its documentation.
 3. **Read.** The agent reads coachd for everything else, because an event carries nothing but a date and IDs.
-4. **Ask and store (morning).** On `health.day_ready` the run asks you how you feel and stores the answer with `log_checkin`. The question waits in the conversation for you; the stored check-in is there for the next run.
+4. **Ask and store (morning).** On `health.day_ready` where the platform keeps a conversation open, the agent asks you how you feel and stores the answer with `log_checkin`; otherwise the next conversation asks. Either way the stored check-in is there for the next run.
 5. **Reply.** The agent calls `send_message` with a short note (at most 300 characters). That reaches your watch, your page and, through ntfy, your phone.
 
 What the prompt should contain, per event:

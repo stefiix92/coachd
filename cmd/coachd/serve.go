@@ -192,8 +192,8 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 	}
 	// The intervals.icu data type exists only while the source is on: drop
 	// the state an earlier run with the key left, before ingest and the
-	// gauges read it, and the sport settings it stored. Its activities stay; turned on again, the first sync
-	// lists back BackfillDays.
+	// gauges read it, and the sport settings it stored. Its activities stay;
+	// turned on again, the first sync lists back BackfillDays.
 	if iv == nil {
 		if err := db.DeleteSyncState(ctx, ingest.TypeIntervals); err != nil {
 			return fmt.Errorf("delete intervals.icu sync state: %w", err)

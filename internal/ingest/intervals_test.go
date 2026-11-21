@@ -887,6 +887,31 @@ func TestProfileSyncKeepsOnFailure(t *testing.T) {
 	}
 }
 
+// A decode failure at intervals.icu (the client's error for a changed shape)
+// keeps the stored profile; an empty answer clears it.
+func TestProfileSyncKeepsOnDecodeFailure(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setSettings(profileEntry(1, 250))
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	mustSync(t, e)
+	fi.setErr(miProfile, errors.New("intervals: sport-settings: decode failed"))
+	e.clock.Set(testNow.Add(time.Hour))
+	mustSync(t, e)
+	if ss := storedProfile(t, e); len(ss) != 1 || ss[0].SourceID != "1" {
+		t.Errorf("after decode failure: %+v, want entry 1 kept", ss)
+	}
+	if st := syncState(t, e, TypeIntervalsProfile); st.LastOutcome != OutcomeError {
+		t.Errorf("profile outcome = %q, want error", st.LastOutcome)
+	}
+	fi.setErr(miProfile, nil)
+	fi.setSettings()
+	e.clock.Set(testNow.Add(2 * time.Hour))
+	mustSync(t, e)
+	if ss := storedProfile(t, e); len(ss) != 0 {
+		t.Errorf("after empty answer: %+v, want none", ss)
+	}
+}
+
 func TestProfileSyncSharesPause(t *testing.T) {
 	fi := newFakeIntervals()
 	fi.setSettings(profileEntry(1, 250))

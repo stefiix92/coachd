@@ -347,6 +347,23 @@ func TestListSportSettingsSkipsBadEntry(t *testing.T) {
 	}
 }
 
+// A shape change that makes every entry undecodable is an error, not an empty
+// profile; an empty array is a real answer.
+func TestListSportSettingsAllUndecodable(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"id":1,"ftp":"x"},{"id":2,"ftp":"y"}]`))
+	})
+	_, _, err := c.ListSportSettings(context.Background())
+	if err == nil || err.Error() != "intervals: sport-settings: decode failed" {
+		t.Fatalf("err = %v, want decode failed", err)
+	}
+	c, _ = newTest(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`[]`)) })
+	got, _, err := c.ListSportSettings(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty array: %v %v, want no error and no entries", got, err)
+	}
+}
+
 func TestListSportSettingsErrors(t *testing.T) {
 	fixed := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
 	call := func(code int, hdr, body string) (*Client, *httptest.Server, error) {

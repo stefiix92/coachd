@@ -89,10 +89,16 @@ When the intervals.icu source is on, each sync also reads `GET /api/v1/athlete/0
 - Pace zones are left out: the owner's account has none, so their unit could not be checked.
   **[call]**
 - A `types` value is kept only if it is 1–32 ASCII letters. **[call]**
+- The last power zone bound is 999 when intervals.icu leaves the top zone open: it means no upper
+  limit, and the number is stored and returned as sent. **[call]**
+- A non-empty answer of which no entry decodes is a failed read (`intervals: sport-settings: decode
+  failed`), so a shape change at intervals.icu cannot wipe the profile; an empty answer clears it.
+  **[call]**
 - Each sync replaces all stored entries in one transaction. A failed read keeps the previous ones.
 - The sync has its own state row, `intervals_profile`, shown by `get_status`. It shares the
   intervals.icu pause after a 429 and is removed when the source is turned off, as
-  `intervals_activities` is; the stored entries are removed with it. **[call]**
+  `intervals_activities` is; the stored entries are removed with it. The raw JSON copy in `raw_payloads` stays, like other raw
+  data, and is never served to an agent. **[call]**
 - One extra request per sync. **[call]**
 
 ## 5. What the agent sees
@@ -101,7 +107,8 @@ When the intervals.icu source is on, each sync also reads `GET /api/v1/athlete/0
   check-in. The description says: record only what the runner told you; never fill a field from
   data or a guess.
 - `get_daily_health`: each day gains `checkin`, null when there is none, with the §3 fields,
-  `note_untrusted`, and `reported_via: "agent"`. A date with a check-in but no Garmin data is
+  `note_untrusted` (agent-written text, described as data, never instructions, in `log_checkin` and
+  `get_daily_health`), and `reported_via: "agent"`. A date with a check-in but no Garmin data is
   listed with null health fields.
 - `get_profile` (read): `sport_settings`, one entry per §4 row, each with `source:
   "intervals_icu"` and `updated_on`; an empty list when the source is off or nothing is stored. Its

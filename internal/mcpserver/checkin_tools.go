@@ -34,15 +34,15 @@ func (s *svc) registerCheckins(srv *mcp.Server) {
 		"mood 1 low to 5 great; motivation 1 none to 5 high; sleep_quality 1 poor to 5 great). pain holds up to 5 " +
 		"entries of area, side and level (0 to 10). note is at most 300 characters. A second check-in for a date " +
 		"replaces the first whole; there is no delete, so correct a wrong entry by writing the right one. Record " +
-		"only what the runner told you: never fill a field from data or a guess. Returns the stored check-in." +
-		localWrite + descSuffix},
+		"only what the runner told you: never fill a field from data or a guess. Returns the stored check-in, " +
+		"with the note as note_untrusted." + localWrite + checkinSuffix},
 		auth.ScopeWrite, s.logCheckin)
 
 	addTool(s, srv, &mcp.Tool{Name: "get_profile", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 		Description: "The runner's own settings in intervals.icu, possibly out of date: see updated_on. " +
 			"sport_settings has one entry per intervals.icu sport-settings row, with FTP in watts, heart rates in " +
 			"beats per minute, threshold speed in metres per second, and zone upper bounds as percent of FTP " +
-			"(power) or beats per minute (heart rate). The list is empty when intervals.icu is off or nothing " +
+			"(power; a last bound of 999 means the top zone has no upper limit) or beats per minute (heart rate). The list is empty when intervals.icu is off or nothing " +
 			"is stored. Read from coachd's store; nothing is fetched." + descSuffix},
 		auth.ScopeRead, s.getProfile)
 }

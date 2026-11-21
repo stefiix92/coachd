@@ -52,7 +52,7 @@ The check-in scales have fixed ends, so two agents write comparable numbers:
 
 A check-in reads back with `reported_via` `agent`, `updated_at`, and the note as `note_untrusted`. coachd stores what the agent was told and judges nothing; the tool description tells the agent to record only what you said.
 
-`get_profile` entries carry `sports` (intervals.icu activity types), `ftp_w` and `indoor_ftp_w` in watts, `threshold_hr_bpm` and `max_hr_bpm` in beats per minute, `threshold_speed_mps` in metres per second, `power_zone_upper_pct_ftp` (zone upper bounds, percent of FTP) and `hr_zone_upper_bpm` (zone upper bounds, beats per minute), lowest zone first. A value you have not set is null. `updated_on` is the date intervals.icu last changed the entry, so an agent can see how old a threshold is.
+`get_profile` entries carry `sports` (intervals.icu activity types), `ftp_w` and `indoor_ftp_w` in watts, `threshold_hr_bpm` and `max_hr_bpm` in beats per minute, `threshold_speed_mps` in metres per second, `power_zone_upper_pct_ftp` (zone upper bounds, percent of FTP; a last bound of 999 means the top zone has no upper limit) and `hr_zone_upper_bpm` (zone upper bounds, beats per minute), lowest zone first. A value you have not set is null. `updated_on` is the date intervals.icu last changed the entry, so an agent can see how old a threshold is.
 
 These tools added fields to existing outputs, so an AI client connected before the upgrade holds the old definitions: reconnect it.
 

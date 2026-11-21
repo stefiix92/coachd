@@ -18,6 +18,7 @@ The release workflow publishes the section whose heading matches the pushed tag 
 ### Changed
 
 - Tool outputs gained fields: `get_daily_health` days have `checkin`, and a date with a check-in but no Garmin data is listed with null health fields. An AI client connected before the upgrade holds the old tool definitions: reconnect it.
+- The `GarminSyncFailing` alert rule now leaves out every intervals.icu data type (`data_type!~"intervals_.*"`), so the new `intervals_profile` sync cannot fire it. When upgrading, copy the new `deploy/grafana/alerts/coachd-alerts.yaml`; on Grafana Cloud, change that rule's query to the one in the file.
 - The `send_message` description now says where a message shows. Its input and output are unchanged. Events and nudges stay off until you set the new variables; agent messages now show on the page and, with ntfy configured, send a push.
 
 ## [0.6.2] - 2026-11-21
