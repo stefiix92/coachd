@@ -1142,7 +1142,7 @@
               "properties": {
                 "data_type": {
                   "type": "string",
-                  "description": "Data type: activities, sleep, hrv, daily or weight from Garmin; intervals_activities from intervals.icu when configured"
+                  "description": "Data type: activities, sleep, hrv, daily or weight from Garmin; intervals_activities and intervals_profile from intervals.icu when configured"
                 },
                 "last_success_at": {
                   "type": [

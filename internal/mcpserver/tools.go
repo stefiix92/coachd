@@ -135,7 +135,7 @@ type pendingProposalOut struct {
 }
 
 type syncOut struct {
-	DataType       string   `json:"data_type" jsonschema:"Data type: activities, sleep, hrv, daily or weight from Garmin; intervals_activities from intervals.icu when configured"`
+	DataType       string   `json:"data_type" jsonschema:"Data type: activities, sleep, hrv, daily or weight from Garmin; intervals_activities and intervals_profile from intervals.icu when configured"`
 	LastSuccessAt  *string  `json:"last_success_at" jsonschema:"Last successful sync, RFC 3339; null if never"`
 	LastOutcome    string   `json:"last_outcome" jsonschema:"Outcome of the last sync attempt"`
 	FreshestDataAt *string  `json:"freshest_data_at" jsonschema:"Time of the newest stored data, RFC 3339; null if none"`

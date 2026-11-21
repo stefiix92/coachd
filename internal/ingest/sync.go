@@ -50,6 +50,7 @@ type Intervals interface {
 	DownloadGeneratedFIT(ctx context.Context, id string) ([]byte, error)
 	// ActivityExists reports false with a nil error only on a 404.
 	ActivityExists(ctx context.Context, id string) (bool, error)
+	ListSportSettings(ctx context.Context) ([]intervals.SportSettings, []byte, error)
 }
 
 var _ Intervals = (*intervals.Client)(nil)
@@ -87,10 +88,14 @@ const (
 	// Options.Intervals is set. It has no backfill and no catch-up: its first
 	// window reaches back BackfillDays.
 	TypeIntervals = store.SyncTypeIntervals
-	TypeSleep     = "sleep"
-	TypeHRV       = "hrv"
-	TypeDaily     = "daily"
-	TypeWeight    = "weight"
+	// TypeIntervalsProfile is the athlete's intervals.icu sport settings,
+	// synced after TypeIntervals when the source is on. It has no window, no
+	// backfill and no say in the sync's outcome.
+	TypeIntervalsProfile = store.SyncTypeIntervalsProfile
+	TypeSleep            = "sleep"
+	TypeHRV              = "hrv"
+	TypeDaily            = "daily"
+	TypeWeight           = "weight"
 )
 
 // dataTypes are the Garmin data types in sync order; Backfill walks only
@@ -98,12 +103,13 @@ const (
 var dataTypes = []string{TypeActivities, TypeSleep, TypeHRV, TypeDaily, TypeWeight}
 
 // syncTypes is the sync order: dataTypes, with TypeIntervals after
-// TypeActivities when the intervals.icu source is on.
+// TypeActivities and TypeIntervalsProfile after that when the intervals.icu
+// source is on.
 func (s *Service) syncTypes() []string {
 	if s.opts.Intervals == nil {
 		return dataTypes
 	}
-	return slices.Insert(slices.Clone(dataTypes), 1, TypeIntervals)
+	return slices.Insert(slices.Clone(dataTypes), 1, TypeIntervals, TypeIntervalsProfile)
 }
 
 // Per-type sync outcomes, stored as SyncState.LastOutcome.
@@ -220,6 +226,10 @@ func (s *Service) Sync(ctx context.Context) (SyncResult, error) {
 			failSpan(span, err)
 			return res, err
 		}
+		if dt == TypeIntervalsProfile {
+			s.syncType(ctx, dt, today, false) // its outcome stays in its own state row
+			continue
+		}
 		outcome, f := s.syncType(ctx, dt, today, rateLimited && dt != TypeIntervals)
 		rateLimited = rateLimited || outcome == OutcomeRateLimited
 		anyOK = anyOK || outcome == OutcomeOK
@@ -283,6 +293,8 @@ func (s *Service) syncType(ctx context.Context, dt string, today civil.Date, pau
 	var err error
 	if paused {
 		err = errPaused
+	} else if dt == TypeIntervalsProfile {
+		f.stored, err = s.syncProfile(ctx)
 	} else {
 		from, ferr := s.windowStart(ctx, dt, today)
 		if ferr != nil {

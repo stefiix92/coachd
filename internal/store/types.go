@@ -117,11 +117,17 @@ type SyncState struct {
 // data type is Garmin's.
 const SyncTypeIntervals = "intervals_activities"
 
+// SyncTypeIntervalsProfile is the data type of the athlete's intervals.icu
+// sport settings.
+const SyncTypeIntervalsProfile = "intervals_profile"
+
 // SyncTypeActivities is the data type of Garmin activities.
 const SyncTypeActivities = "activities"
 
 // FromGarmin reports whether the state is of one of Garmin's data types.
-func (s SyncState) FromGarmin() bool { return s.DataType != SyncTypeIntervals }
+func (s SyncState) FromGarmin() bool {
+	return s.DataType != SyncTypeIntervals && s.DataType != SyncTypeIntervalsProfile
+}
 
 type TokenRecord struct {
 	ID, Name              string

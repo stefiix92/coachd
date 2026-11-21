@@ -192,11 +192,17 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 	}
 	// The intervals.icu data type exists only while the source is on: drop
 	// the state an earlier run with the key left, before ingest and the
-	// gauges read it. Its activities stay; turned on again, the first sync
+	// gauges read it, and the sport settings it stored. Its activities stay; turned on again, the first sync
 	// lists back BackfillDays.
 	if iv == nil {
 		if err := db.DeleteSyncState(ctx, ingest.TypeIntervals); err != nil {
 			return fmt.Errorf("delete intervals.icu sync state: %w", err)
+		}
+		if err := db.DeleteSyncState(ctx, ingest.TypeIntervalsProfile); err != nil {
+			return fmt.Errorf("delete intervals.icu profile sync state: %w", err)
+		}
+		if err := db.ReplaceSportSettings(ctx, "intervals_icu", nil); err != nil {
+			return fmt.Errorf("clear intervals.icu sport settings: %w", err)
 		}
 	}
 	// Outside builtin mode no OAuth grant may survive (spec §3, M13):

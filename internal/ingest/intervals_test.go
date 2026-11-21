@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,10 +21,11 @@ import (
 
 // Fake intervals.icu method names, used as keys for errors and call counters.
 const (
-	miList   = "intervals.ListActivities"
-	miFile   = "intervals.DownloadFile"
-	miGen    = "intervals.DownloadGeneratedFIT"
-	miExists = "intervals.ActivityExists"
+	miList    = "intervals.ListActivities"
+	miFile    = "intervals.DownloadFile"
+	miGen     = "intervals.DownloadGeneratedFIT"
+	miExists  = "intervals.ActivityExists"
+	miProfile = "intervals.ListSportSettings"
 )
 
 // fakeIntervals is an in-memory intervals.icu satisfying the Intervals
@@ -44,6 +46,7 @@ type fakeIntervals struct {
 	fileCalls map[string]int
 	gen       map[string][]byte // DownloadGeneratedFIT body per id; any other id is a 404
 	genCalls  map[string]int
+	settings  []intervals.SportSettings // ListSportSettings answer
 }
 
 func newFakeIntervals() *fakeIntervals {
@@ -771,5 +774,153 @@ func TestMapIntervalsRealShape(t *testing.T) {
 	if gpx.FITStatus != store.FITPending || gpx.HasPower || gpx.AvgPowerW != nil || gpx.DurationS != 5487 ||
 		gpx.Intervals.TrainingLoad == nil || *gpx.Intervals.TrainingLoad != 73 || gpx.Intervals.NormalizedPowerW != nil {
 		t.Errorf("gpx = %+v", gpx)
+	}
+}
+
+// ListSportSettings answers f.settings with its JSON as the raw body.
+func (f *fakeIntervals) ListSportSettings(ctx context.Context) ([]intervals.SportSettings, []byte, error) {
+	if err := f.enter(ctx, miProfile); err != nil {
+		return nil, nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	raw, err := json.Marshal(f.settings)
+	return slices.Clone(f.settings), raw, err
+}
+
+func (f *fakeIntervals) setSettings(ss ...intervals.SportSettings) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.settings = ss
+}
+
+func TestMapSportSettings(t *testing.T) {
+	zones25 := make([]int, 25)
+	for i := range zones25 {
+		zones25[i] = 100 + i
+	}
+	got := MapSportSettings(intervals.SportSettings{
+		ID: 42, Types: []string{"Ride", "Bad Type!", strings.Repeat("x", 40), "", "Run"},
+		FTP: ip(0), IndoorFTP: ip(-3), LTHR: ip(170), MaxHR: ip(190), ThresholdPace: fp(0),
+		PowerZones: zones25, HRZones: []int{140, -1}, Updated: "2024-05-27T10:29:50.935+00:00",
+	})
+	if got.Source != "intervals_icu" || got.SourceID != "42" {
+		t.Errorf("source = %q %q, want intervals_icu 42", got.Source, got.SourceID)
+	}
+	if !slices.Equal(got.Sports, []string{"Ride", "Run"}) {
+		t.Errorf("sports = %v, want [Ride Run]", got.Sports)
+	}
+	if got.FTPW != nil || got.IndoorFTPW != nil || got.ThresholdSpeedMps != nil {
+		t.Errorf("zero thresholds = %v %v %v, want nil", got.FTPW, got.IndoorFTPW, got.ThresholdSpeedMps)
+	}
+	if got.ThresholdHRBpm == nil || *got.ThresholdHRBpm != 170 || got.MaxHRBpm == nil || *got.MaxHRBpm != 190 {
+		t.Errorf("hr = %v %v, want 170 190", got.ThresholdHRBpm, got.MaxHRBpm)
+	}
+	if got.HRZonesBpm != nil {
+		t.Errorf("hr zones with a negative = %v, want nil", got.HRZonesBpm)
+	}
+	if !slices.Equal(got.PowerZonesPct, zones25[:20]) {
+		t.Errorf("power zones = %v, want the first 20", got.PowerZonesPct)
+	}
+	want := time.Date(2024, 5, 27, 10, 29, 50, 935000000, time.UTC)
+	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(want) {
+		t.Errorf("updated = %v, want %v", got.UpdatedAt, want)
+	}
+	if bad := MapSportSettings(intervals.SportSettings{ID: 1, Updated: "yesterday", FTP: ip(250), ThresholdPace: fp(3.5)}); bad.UpdatedAt != nil ||
+		bad.FTPW == nil || *bad.FTPW != 250 || bad.ThresholdSpeedMps == nil || *bad.ThresholdSpeedMps != 3.5 {
+		t.Errorf("unparseable updated = %v, ftp %v pace %v, want nil 250 3.5", bad.UpdatedAt, bad.FTPW, bad.ThresholdSpeedMps)
+	}
+}
+
+func profileEntry(id int64, ftp int) intervals.SportSettings {
+	return intervals.SportSettings{ID: id, Types: []string{"Ride"}, FTP: ip(ftp), PowerZones: []int{55, 75, 90}}
+}
+
+func storedProfile(t *testing.T, e *env) []store.SportSettings {
+	t.Helper()
+	ss, err := e.db.ListSportSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ss
+}
+
+func TestProfileSyncReplaces(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setSettings(profileEntry(1, 250))
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	mustSync(t, e)
+	if ss := storedProfile(t, e); len(ss) != 1 || ss[0].SourceID != "1" {
+		t.Fatalf("after A: %+v", ss)
+	}
+	fi.setSettings(profileEntry(2, 260))
+	e.clock.Set(testNow.Add(time.Hour))
+	mustSync(t, e)
+	ss := storedProfile(t, e)
+	if len(ss) != 1 || ss[0].SourceID != "2" || ss[0].FTPW == nil || *ss[0].FTPW != 260 {
+		t.Fatalf("after B: %+v, want only entry 2", ss)
+	}
+	if st := syncState(t, e, TypeIntervalsProfile); st.LastOutcome != OutcomeOK || st.LastSuccessAt == nil {
+		t.Errorf("state = %+v, want ok with a success", st)
+	}
+}
+
+func TestProfileSyncKeepsOnFailure(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setSettings(profileEntry(1, 250))
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	mustSync(t, e)
+	fi.setErr(miProfile, &intervals.StatusError{Endpoint: "sport-settings", Status: 503})
+	e.clock.Set(testNow.Add(time.Hour))
+	res := mustSync(t, e)
+	if ss := storedProfile(t, e); len(ss) != 1 || ss[0].SourceID != "1" {
+		t.Errorf("after failure: %+v, want entry 1 kept", ss)
+	}
+	if st := syncState(t, e, TypeIntervalsProfile); st.LastOutcome != OutcomeError {
+		t.Errorf("profile outcome = %q, want error", st.LastOutcome)
+	}
+	if st := syncState(t, e, TypeIntervals); st.LastOutcome != OutcomeOK || res.Outcomes[TypeIntervals] != OutcomeOK {
+		t.Errorf("activities outcome = %q / %q, want ok", st.LastOutcome, res.Outcomes[TypeIntervals])
+	}
+	if res.Outcomes[TypeActivities] != OutcomeOK {
+		t.Errorf("garmin activities outcome = %q, want ok", res.Outcomes[TypeActivities])
+	}
+}
+
+func TestProfileSyncSharesPause(t *testing.T) {
+	fi := newFakeIntervals()
+	fi.setSettings(profileEntry(1, 250))
+	retryAt := testNow.Add(time.Hour)
+	fi.setErr(miList, &intervals.RateLimitedError{RetryAt: retryAt})
+	e := newIntervalsEnv(t, seededFake(t), fi, nil)
+	mustSync(t, e)
+	if n := fi.count(miProfile); n != 0 {
+		t.Fatalf("profile calls during the pause = %d, want 0", n)
+	}
+	if st := syncState(t, e, TypeIntervalsProfile); st.LastOutcome != OutcomeIntervalsRateLimited {
+		t.Errorf("profile outcome = %q, want rate_limited", st.LastOutcome)
+	}
+	fi.setErr(miList, nil)
+	e.clock.Set(retryAt)
+	mustSync(t, e)
+	if n := fi.count(miProfile); n != 1 {
+		t.Errorf("profile calls after the pause = %d, want 1", n)
+	}
+}
+
+func TestProfileOffWithoutSource(t *testing.T) {
+	e := newEnv(t, seededFake(t), nil)
+	if slices.Contains(e.svc.syncTypes(), TypeIntervalsProfile) {
+		t.Errorf("syncTypes %v include %s with the source off", e.svc.syncTypes(), TypeIntervalsProfile)
+	}
+	mustSync(t, e)
+	states, err := e.db.ListSyncStates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range states {
+		if st.DataType == TypeIntervalsProfile {
+			t.Errorf("state row %+v with the source off", st)
+		}
 	}
 }
