@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +27,14 @@ var bratislava = func() *time.Location {
 	return l
 }()
 
-type recorder struct{ got []Event }
+// recorder hears the events it wants: every event when want is nil, none
+// when it is empty.
+type recorder struct {
+	want []string
+	got  []Event
+}
+
+func (r *recorder) Wants(name string) bool { return r.want == nil || slices.Contains(r.want, name) }
 
 func (r *recorder) Fire(_ context.Context, ev Event) { r.got = append(r.got, ev) }
 
@@ -52,8 +60,8 @@ func newEnv(t *testing.T, local string) *env {
 	return e
 }
 
-func (e *env) newService(r *recorder) *Service {
-	return New(Options{DB: e.db, TZ: bratislava, Now: func() time.Time { return e.now }, Sinks: []Sink{r},
+func (e *env) newService(sinks ...Sink) *Service {
+	return New(Options{DB: e.db, TZ: bratislava, Now: func() time.Time { return e.now }, Sinks: sinks,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 }
 
@@ -77,13 +85,18 @@ func (e *env) synced(t *testing.T, s string) {
 	}
 }
 
-func (e *env) noMarks(t *testing.T) {
+func (e *env) marks(t *testing.T) []store.EventMark {
 	t.Helper()
 	m, err := e.db.EventMarks(e.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m) != 0 {
+	return m
+}
+
+func (e *env) noMarks(t *testing.T) {
+	t.Helper()
+	if m := e.marks(t); len(m) != 0 {
 		t.Fatalf("marks %v, want none", m)
 	}
 }
@@ -427,4 +440,82 @@ func TestRunChecksAtStartAndEveryInterval(t *testing.T) {
 	e.synced(t, "2026-11-03 07:00")
 	e.proposal(t, "p1", "2026-11-02")
 	waitFor(t, "a check on the interval", func() bool { return r.len() == 1 })
+}
+
+// allDue makes all three kinds due on Monday 2026-11-02 at local time s:
+// today's sleep, a delivered workout from Sunday with no activity, the
+// morning sync and the week that closed.
+func (e *env) allDue(t *testing.T, s string) {
+	t.Helper()
+	e.at(s)
+	e.synced(t, s)
+	e.health(t, "2026-11-02", ip(25000))
+	e.proposal(t, "p1", "2026-11-01")
+}
+
+// An event no sink wants is neither fired nor marked, and its check reads
+// nothing: Check succeeds on a closed store.
+func TestNoSinkWantsNothingMarked(t *testing.T) {
+	e := newEnv(t, "2026-11-02 08:00")
+	e.allDue(t, "2026-11-02 08:00")
+	r := &recorder{want: []string{}}
+	if err := e.newService(r).Check(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.got) != 0 {
+		t.Fatalf("fired %+v, want nothing", r.got)
+	}
+	e.noMarks(t)
+	if err := e.newService().Check(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.noMarks(t)
+	e.db.Close()
+	if err := e.newService(r).Check(e.ctx); err != nil {
+		t.Fatalf("Check with no wanted event touched the store: %v", err)
+	}
+}
+
+// A sink wanting only week.closed gets only that, and only it is marked; a
+// receiver added later the same day still gets the other two.
+func TestOnlyWantedEventMarked(t *testing.T) {
+	e := newEnv(t, "2026-11-02 06:00")
+	e.allDue(t, "2026-11-02 06:00")
+	r := &recorder{want: []string{WeekClosed}}
+	if err := e.newService(r).Check(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if want := []Event{{Name: WeekClosed, Date: date("2026-10-26")}}; !slices.Equal(r.got, want) {
+		t.Fatalf("fired %+v, want %+v", r.got, want)
+	}
+	if got, want := e.marks(t), []store.EventMark{{Event: WeekClosed, Key: "2026-10-26"}}; !slices.Equal(got, want) {
+		t.Fatalf("marks %v, want %v", got, want)
+	}
+
+	e.at("2026-11-02 09:00")
+	later := &recorder{}
+	if err := e.newService(later).Check(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []Event{{Name: HealthDayReady, Date: date("2026-11-02")},
+		{Name: WorkoutUnmatched, Date: date("2026-11-01"), ProposalID: "p1"}}
+	if !slices.Equal(later.got, want) {
+		t.Fatalf("later receiver got %+v, want %+v", later.got, want)
+	}
+}
+
+// Each sink gets only the events it wants.
+func TestEventGoesOnlyToSinksThatWantIt(t *testing.T) {
+	e := newEnv(t, "2026-11-02 08:00")
+	e.allDue(t, "2026-11-02 08:00")
+	week, day := &recorder{want: []string{WeekClosed}}, &recorder{want: []string{HealthDayReady, WeekClosed}}
+	if err := e.newService(week, day).Check(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if want := []Event{{Name: WeekClosed, Date: date("2026-10-26")}}; !slices.Equal(week.got, want) {
+		t.Fatalf("week sink got %+v, want %+v", week.got, want)
+	}
+	if want := []Event{{Name: HealthDayReady, Date: date("2026-11-02")}, {Name: WeekClosed, Date: date("2026-10-26")}}; !slices.Equal(day.got, want) {
+		t.Fatalf("day sink got %+v, want %+v", day.got, want)
+	}
 }

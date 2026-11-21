@@ -330,3 +330,17 @@ func TestWebhookFireIgnoresActivityEvent(t *testing.T) {
 		t.Fatalf("queued %d, want 0", n)
 	}
 }
+
+// The webhook wants a day, workout or week event only when it is configured;
+// it never wants the activity event as a trigger event.
+func TestWebhookWants(t *testing.T) {
+	rig := newWebhookRigEvents(t, "http://127.0.0.1:1/hook", "", []string{"activity.stored", "week.closed"})
+	for name, want := range map[string]bool{
+		triggers.WeekClosed: true, triggers.HealthDayReady: false, triggers.WorkoutUnmatched: false,
+		EventActivityStored: false, "other": false,
+	} {
+		if got := rig.w.Wants(name); got != want {
+			t.Errorf("Wants(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

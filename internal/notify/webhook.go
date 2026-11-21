@@ -99,16 +99,22 @@ func (w *Webhook) ActivityStored(ctx context.Context, a store.Activity) {
 	w.enqueue(ctx, hookItem{body: body, event: EventActivityStored, activityID: a.ID})
 }
 
-// Fire enqueues a day, workout or week event when it is among the configured
-// events; it never blocks. A full queue drops the event. Other names, the
-// activity event included, send nothing here.
-func (w *Webhook) Fire(ctx context.Context, ev triggers.Event) {
-	switch ev.Name {
+// Wants reports whether name is a day, workout or week event among the
+// configured events. The activity event is not one: ingest hands it over
+// through ActivityStored.
+func (w *Webhook) Wants(name string) bool {
+	switch name {
 	case triggers.HealthDayReady, triggers.WorkoutUnmatched, triggers.WeekClosed:
-	default:
-		return
+		return slices.Contains(w.events, name)
 	}
-	if !slices.Contains(w.events, ev.Name) {
+	return false
+}
+
+// Fire enqueues a day, workout or week event the webhook wants; it never
+// blocks. A full queue drops the event. Other names, the activity event
+// included, send nothing here.
+func (w *Webhook) Fire(ctx context.Context, ev triggers.Event) {
+	if !w.Wants(ev.Name) {
 		return
 	}
 	// Marshalling a struct of strings cannot fail.

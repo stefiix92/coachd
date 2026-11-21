@@ -254,10 +254,11 @@ func runServe(ctx context.Context, cfg *config.Config, g ingest.Garmin, iv inges
 		mcpDeps.Messages = ntfy // only when configured: a nil *Ntfy in the interface is not nil
 	}
 	mcpHandler := mcpserver.Handler(mcpserver.New(mcpDeps, version))
-	// Day, workout and week events go to the webhook when configured and to
-	// ntfy only when the runner turned nudges on.
+	// Day, workout and week events go to the webhook when its event list
+	// holds one of them, and to ntfy only when the runner turned nudges on.
+	// With neither, no triggers service runs.
 	var sinks []triggers.Sink
-	if webhook != nil {
+	if webhook != nil && triggers.WantsAny(webhook) {
 		sinks = append(sinks, webhook)
 	}
 	if ntfy != nil && cfg.Nudges {

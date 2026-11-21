@@ -35,6 +35,8 @@ COACHD_WEBHOOK_EVENTS=activity.stored,health.day_ready,workout.unmatched,week.cl
 
 The webhook and nudges are independent: either, both or neither. The nudge texts are in [ntfy](/docs/install/notifications/#nudges).
 
+coachd remembers only the events something receives. An event that is neither in `COACHD_WEBHOOK_EVENTS` nor nudged is not recorded, so when you turn it on later it starts with the current day or week: listing `week.closed` on a Monday morning still sends that Monday's event.
+
 ## Messages
 
 An agent's `send_message` shows on the watch and on coachd's page. With ntfy configured it also sends a push that says only "Your agent left a message", with a link to the page. The text itself never leaves coachd. At most one such push goes out per 15 minutes.

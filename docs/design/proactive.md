@@ -61,13 +61,17 @@ Where no agent is wired up, coachd can send fixed, numbers-free nudges itself. *
 - Each event fires once per key (the date, or the proposal ID), remembered in the database, so a
   restart repeats nothing. Events are evaluated only for today, yesterday and the week just closed,
   so downtime sends at most one of each kind when coachd comes back. **[call]**
+- An event nobody is configured to receive (not in `COACHD_WEBHOOK_EVENTS`, and nudges off) is not
+  marked, so turning it on later starts with the current day or week. When nobody receives any of the
+  three, no check runs. **[call]**
 - A check runs every 5 minutes, independent of the sync. **[call]**
 
 ## 4. Webhook
 
 `COACHD_WEBHOOK_EVENTS` is a comma-separated list of the four event names. Its default is
 `activity.stored`, so an existing receiver sees no change. **[call]** An unknown name is a start
-error. Delivery, retries, queue and headers are those of `post-run-webhook.md` §5. The span for the
+error. The webhook receives day, workout and week events only when its list holds them; an event
+neither it nor a nudge receives is not marked (§3). Delivery, retries, queue and headers are those of `post-run-webhook.md` §5. The span for the
 new events is `event.webhook` with `event`, `outcome` and, when present, `proposal_id`. `event` joins
 the telemetry allowlist: its values are the four fixed names.
 

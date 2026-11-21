@@ -1,11 +1,12 @@
 // Package triggers decides which day, workout and week events are due and
-// fires each exactly once to its sinks. It holds no coaching logic: an event
-// says a moment arrived, never what it means.
+// fires each exactly once to the sinks that want it. It holds no coaching
+// logic: an event says a moment arrived, never what it means.
 package triggers
 
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/stefiix92/coachd/internal/civil"
@@ -20,6 +21,9 @@ const (
 	WeekClosed       = "week.closed"
 )
 
+// names are the events this package fires.
+var names = []string{HealthDayReady, WorkoutUnmatched, WeekClosed}
+
 const (
 	gateHour        = 6
 	defaultInterval = 5 * time.Minute
@@ -32,10 +36,16 @@ type Event struct {
 	ProposalID string
 }
 
-// Sink hears each event once. It must not block.
+// Sink hears each event it wants once. It must not block.
 type Sink interface {
+	// Wants reports whether the sink takes events named name. The answer
+	// must not change while the Service runs.
+	Wants(name string) bool
 	Fire(ctx context.Context, ev Event)
 }
+
+// WantsAny reports whether k wants any event this package fires.
+func WantsAny(k Sink) bool { return slices.ContainsFunc(names, k.Wants) }
 
 // Options configures a Service.
 type Options struct {
@@ -65,32 +75,51 @@ func New(o Options) *Service {
 	return &Service{o: o}
 }
 
-// fire records the event and, only on its first mark, hands it to the sinks.
+// fire records the event and, only on its first mark, hands it to the sinks
+// that want it. An event no sink wants is neither marked nor fired, so a
+// receiver that starts wanting it later gets the current day or week.
 func (s *Service) fire(ctx context.Context, ev Event, key string) error {
+	var to []Sink
+	for _, k := range s.o.Sinks {
+		if k.Wants(ev.Name) {
+			to = append(to, k)
+		}
+	}
+	if len(to) == 0 {
+		return nil
+	}
 	first, err := s.o.DB.MarkEvent(ctx, ev.Name, key, s.o.Now())
 	if err != nil || !first {
 		return err
 	}
-	for _, k := range s.o.Sinks {
+	for _, k := range to {
 		k.Fire(ctx, ev)
 	}
 	return nil
 }
 
-// Check runs one pass over the due events.
+// wanted reports whether any sink wants events named name.
+func (s *Service) wanted(name string) bool {
+	return slices.ContainsFunc(s.o.Sinks, func(k Sink) bool { return k.Wants(name) })
+}
+
+// Check runs one pass over the due events. An event no sink wants is not
+// looked for.
 func (s *Service) Check(ctx context.Context) error {
 	now := s.o.Now()
 	today := civil.Of(now, s.o.TZ)
 	gated := now.In(s.o.TZ).Hour() >= gateHour
 
-	hs, err := s.o.DB.ListDailyHealth(ctx, today, today)
-	if err != nil {
-		return err
-	}
-	for _, h := range hs {
-		if h.SleepS != nil {
-			if err := s.fire(ctx, Event{Name: HealthDayReady, Date: today}, today.String()); err != nil {
-				return err
+	if s.wanted(HealthDayReady) {
+		hs, err := s.o.DB.ListDailyHealth(ctx, today, today)
+		if err != nil {
+			return err
+		}
+		for _, h := range hs {
+			if h.SleepS != nil {
+				if err := s.fire(ctx, Event{Name: HealthDayReady, Date: today}, today.String()); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -98,8 +127,10 @@ func (s *Service) Check(ctx context.Context) error {
 		return nil
 	}
 
-	if err := s.checkUnmatched(ctx, today); err != nil {
-		return err
+	if s.wanted(WorkoutUnmatched) {
+		if err := s.checkUnmatched(ctx, today); err != nil {
+			return err
+		}
 	}
 
 	if today.WeekStart() == today {

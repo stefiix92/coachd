@@ -1470,15 +1470,34 @@ func TestServeFiresDayEvent(t *testing.T) {
 	}
 }
 
-// With the default event list the receiver never hears of the day event.
+// With the default event list the receiver never hears of the day event, and
+// nothing is marked once today's sleep is stored: an event nobody receives
+// is still due when the runner lists it later.
 func TestServeDefaultEventsUnchanged(t *testing.T) {
 	shortTriggers(t)
 	cfg := testCfg(t)
 	url, bodies := webhookReceiver(t)
 	cfg.WebhookURL, cfg.WebhookEvents = url, []string{"activity.stored"}
-	startServeGarmin(t, cfg, testTel(t), sleepGarmin{tz: cfg.TZ}, testKeys(t, cfg))
-	time.Sleep(1500 * time.Millisecond)
+	r := startServeGarmin(t, cfg, testTel(t), sleepGarmin{tz: cfg.TZ}, testKeys(t, cfg))
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, "coachd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	today := civil.Of(time.Now(), cfg.TZ)
+	eventually(t, "today's sleep", func() bool {
+		hs, err := db.ListDailyHealth(ctx, today, today)
+		return err == nil && len(hs) == 1 && hs[0].SleepS != nil
+	})
+	time.Sleep(500 * time.Millisecond) // several check intervals after the sleep is in
+	if err := r.stop(t); err != nil {
+		t.Fatal(err)
+	}
 	if got := bodies(); len(got) != 0 {
 		t.Errorf("receiver got %q, want nothing", got)
+	}
+	if marks, err := db.EventMarks(ctx); err != nil || len(marks) != 0 {
+		t.Errorf("event marks %v (%v), want none", marks, err)
 	}
 }

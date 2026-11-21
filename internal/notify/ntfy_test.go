@@ -532,3 +532,16 @@ func TestNtfyAgentMessageDropDoesNotStartWindow(t *testing.T) {
 		t.Fatal("an enqueued message push did not start the window")
 	}
 }
+
+// Ntfy wants the three nudge events and nothing else.
+func TestNtfyWants(t *testing.T) {
+	r := newRig(t, "http://127.0.0.1:1", "")
+	for name, want := range map[string]bool{
+		triggers.HealthDayReady: true, triggers.WorkoutUnmatched: true, triggers.WeekClosed: true,
+		"activity.stored": false, "other": false,
+	} {
+		if got := r.n.Wants(name); got != want {
+			t.Errorf("Wants(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

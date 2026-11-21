@@ -136,6 +136,16 @@ func (n *Ntfy) AppConnected() { n.enqueue(notice{kind: kindAppConnected}) }
 // was reused"; it never blocks. A full queue drops it.
 func (n *Ntfy) ConnectionRevoked() { n.enqueue(notice{kind: kindConnectionRevoked}) }
 
+// Wants reports whether name is a day, workout or week event: each has a
+// nudge. Ntfy is a triggers sink only when nudges are on.
+func (n *Ntfy) Wants(name string) bool {
+	switch name {
+	case triggers.HealthDayReady, triggers.WorkoutUnmatched, triggers.WeekClosed:
+		return true
+	}
+	return false
+}
+
 // Fire enqueues a nudge for a day, workout or week event; it never blocks.
 // Other events send nothing.
 func (n *Ntfy) Fire(_ context.Context, ev triggers.Event) {
