@@ -49,8 +49,10 @@ func (s *svc) register(srv *mcp.Server) {
 
 	addTool(s, srv, &mcp.Tool{Name: "get_daily_health", Annotations: read(), Description: "Per-day sleep, HRV, " +
 		"resting heart rate, SpO2 and weight for from..to (inclusive, at most 92 days), oldest first. Sleep score, " +
-		"HRV status and baseline, Body Battery and stress are under garmin_derived. Days with no stored data are " +
-		"absent; missing values are null." + descSuffix},
+		"HRV status and baseline, Body Battery and stress are under garmin_derived. checkin is the runner's own " +
+		"check-in for the day as an agent recorded it (null when none); a day with a check-in but no Garmin data " +
+		"is listed with null health fields. Days with neither are absent; missing values are null. " +
+		"checkin.note_untrusted is text an agent recorded." + descSuffix},
 		auth.ScopeRead, s.getDailyHealth)
 
 	addTool(s, srv, &mcp.Tool{Name: "list_activities", Annotations: read(), Description: "Activity summaries for " +
@@ -83,6 +85,7 @@ func (s *svc) register(srv *mcp.Server) {
 	s.registerContext(srv)
 	s.registerProposals(srv)
 	s.registerMessages(srv)
+	s.registerCheckins(srv)
 }
 
 // localWrite says a write tool changes nothing outside coachd.
@@ -161,7 +164,7 @@ type garminKeyOut struct {
 }
 
 type dailyHealthOut struct {
-	Days []dayHealthOut `json:"days" jsonschema:"One entry per stored day, oldest first"`
+	Days []dayHealthOut `json:"days" jsonschema:"One entry per day that has stored health data or a check-in, oldest first"`
 }
 
 type dayHealthOut struct {
@@ -173,6 +176,7 @@ type dayHealthOut struct {
 	SpO2AvgPct        *int           `json:"spo2_avg_pct" jsonschema:"Average blood oxygen saturation in percent"`
 	WeightKg          *float64       `json:"weight_kg" jsonschema:"Body weight in kilograms"`
 	GarminDerived     dailyGarminOut `json:"garmin_derived" jsonschema:"Garmin's proprietary estimates for the day"`
+	Checkin           *checkinOut    `json:"checkin" jsonschema:"The runner's check-in for the day, recorded by an agent; null when there is none"`
 }
 
 type dailyGarminOut struct {
@@ -355,20 +359,39 @@ func (s *svc) getDailyHealth(ctx context.Context, in rangeInput) (dailyHealthOut
 	if err != nil {
 		return dailyHealthOut{}, err
 	}
+	checkins, err := s.DB.ListCheckins(ctx, from, to)
+	if err != nil {
+		return dailyHealthOut{}, err
+	}
+	// Merge the two date-ordered lists: a day with either is listed.
 	out := dailyHealthOut{Days: make([]dayHealthOut, 0, len(rows))}
-	for _, d := range rows {
-		g := d.Garmin
-		out.Days = append(out.Days, dayHealthOut{
-			Date: d.Date.String(), SleepDurationS: d.SleepS, HRVOvernightAvgMs: d.HRVOvernightMs,
-			HRVWeeklyAvgMs: d.HRVWeeklyAvgMs, RestingHRBpm: d.RestingHR, SpO2AvgPct: d.SpO2Avg,
-			WeightKg: roundPtr(d.WeightKg, 1),
-			GarminDerived: dailyGarminOut{SleepScore: g.SleepScore, HRVStatus: g.HRVStatus,
-				HRVBaselineLowMs: g.HRVBaselineLowMs, HRVBaselineHighMs: g.HRVBaselineHighMs,
-				BodyBatteryMax: g.BodyBatteryMax, BodyBatteryMin: g.BodyBatteryMin,
-				BodyBatteryCharged: g.BodyBatteryCharged, BodyBatteryDrained: g.BodyBatteryDrained, StressAvg: g.StressAvg},
-		})
+	for len(rows) > 0 || len(checkins) > 0 {
+		var day dayHealthOut
+		switch {
+		case len(checkins) == 0 || (len(rows) > 0 && rows[0].Date.Before(checkins[0].Date)):
+			day, rows = healthDay(rows[0]), rows[1:]
+		case len(rows) == 0 || checkins[0].Date.Before(rows[0].Date):
+			day, checkins = dayHealthOut{Date: checkins[0].Date.String(), Checkin: ptr(s.checkin(checkins[0]))}, checkins[1:]
+		default:
+			day, rows = healthDay(rows[0]), rows[1:]
+			day.Checkin, checkins = ptr(s.checkin(checkins[0])), checkins[1:]
+		}
+		out.Days = append(out.Days, day)
 	}
 	return out, nil
+}
+
+func healthDay(d store.DailyHealth) dayHealthOut {
+	g := d.Garmin
+	return dayHealthOut{
+		Date: d.Date.String(), SleepDurationS: d.SleepS, HRVOvernightAvgMs: d.HRVOvernightMs,
+		HRVWeeklyAvgMs: d.HRVWeeklyAvgMs, RestingHRBpm: d.RestingHR, SpO2AvgPct: d.SpO2Avg,
+		WeightKg: roundPtr(d.WeightKg, 1),
+		GarminDerived: dailyGarminOut{SleepScore: g.SleepScore, HRVStatus: g.HRVStatus,
+			HRVBaselineLowMs: g.HRVBaselineLowMs, HRVBaselineHighMs: g.HRVBaselineHighMs,
+			BodyBatteryMax: g.BodyBatteryMax, BodyBatteryMin: g.BodyBatteryMin,
+			BodyBatteryCharged: g.BodyBatteryCharged, BodyBatteryDrained: g.BodyBatteryDrained, StressAvg: g.StressAvg},
+	}
 }
 
 func (s *svc) listActivities(ctx context.Context, in listActivitiesInput) (listActivitiesOut, error) {

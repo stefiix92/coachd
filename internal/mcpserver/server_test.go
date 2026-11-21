@@ -262,8 +262,8 @@ func TestProtocol20251125Initialize(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{"cancel_proposal", "delete_note", "get_activity", "get_daily_health", "get_goal", "get_notes",
-		"get_status", "get_summaries", "list_activities", "list_workouts", "propose_workout", "request_sync", "send_message",
-		"set_goal", "upsert_note"}
+		"get_profile", "get_status", "get_summaries", "list_activities", "list_workouts", "log_checkin", "propose_workout",
+		"request_sync", "send_message", "set_goal", "upsert_note"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools %v", names)
 	}
@@ -341,12 +341,12 @@ func TestToolAnnotationsAndDescriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Tools) != 15 {
+	if len(res.Tools) != 17 {
 		t.Fatalf("%d tools", len(res.Tools))
 	}
 	// Write tools and their idempotency; every other tool is read-only.
 	writes := map[string]bool{"request_sync": true, "set_goal": true, "upsert_note": false, "delete_note": true,
-		"propose_workout": false, "cancel_proposal": false, "send_message": false}
+		"propose_workout": false, "cancel_proposal": false, "send_message": false, "log_checkin": true}
 	for _, tl := range res.Tools {
 		suffix := mandatedSuffix
 		switch tl.Name {

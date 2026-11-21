@@ -392,6 +392,7 @@ func writeCalls(pendingID string) map[string]map[string]any {
 		"cancel_proposal": {"id": pendingID},
 		"request_sync":    {},
 		"send_message":    {"text": "hi"},
+		"log_checkin":     {"mood": 3},
 	}
 }
 
@@ -584,6 +585,9 @@ func TestNoToolCanApprove(t *testing.T) {
 		if _, ok := fixed[r.Target]; ok {
 			continue // the fixtures' own insert rows
 		}
+		if r.Event == "checkin_upserted" {
+			continue // log_checkin's own row; it touches no proposal
+		}
 		if r.Event != "proposal_pending" && r.Event != "proposal_cancelled" {
 			t.Errorf("audit_log transition %+v", r)
 		}
@@ -651,7 +655,9 @@ func TestAgentTextNeverInTelemetry(t *testing.T) {
 		{"cancel_proposal", map[string]any{"id": canary}},
 		{"list_workouts", map[string]any{"from": "2026-10-23", "to": "2026-11-06", "status": canary}},
 		{"list_workouts", map[string]any{"from": canary, "to": "2026-11-06"}},
-		{"get_goal", nil}, {"get_notes", nil}, {"get_status", nil},
+		{"log_checkin", map[string]any{"note": canary}},
+		{"log_checkin", map[string]any{"note": canary, "date": canary}},
+		{"get_goal", nil}, {"get_notes", nil}, {"get_status", nil}, {"get_profile", nil},
 		{"list_workouts", map[string]any{"from": "2026-10-23", "to": "2026-11-06"}},
 	}
 	echoed := 0

@@ -1347,7 +1347,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\"days\":[{\"date\":\"2026-10-18\",\"sleep_duration_s\":null,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":null,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null}},{\"date\":\"2026-10-20\",\"sleep_duration_s\":27000,\"hrv_overnight_avg_ms\":55,\"hrv_weekly_avg_ms\":58,\"resting_hr_bpm\":48,\"spo2_avg_pct\":96,\"weight_kg\":72.4,\"garmin_derived\":{\"sleep_score\":81,\"hrv_status\":\"BALANCED\",\"hrv_baseline_low_ms\":50,\"hrv_baseline_high_ms\":65,\"body_battery_max\":90,\"body_battery_min\":20,\"body_battery_charged\":60,\"body_battery_drained\":55,\"stress_avg\":30}},{\"date\":\"2026-10-21\",\"sleep_duration_s\":25200,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":50,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null}}]}"
+          "text": "{\"days\":[{\"date\":\"2026-10-18\",\"sleep_duration_s\":null,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":null,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null},\"checkin\":null},{\"date\":\"2026-10-20\",\"sleep_duration_s\":27000,\"hrv_overnight_avg_ms\":55,\"hrv_weekly_avg_ms\":58,\"resting_hr_bpm\":48,\"spo2_avg_pct\":96,\"weight_kg\":72.4,\"garmin_derived\":{\"sleep_score\":81,\"hrv_status\":\"BALANCED\",\"hrv_baseline_low_ms\":50,\"hrv_baseline_high_ms\":65,\"body_battery_max\":90,\"body_battery_min\":20,\"body_battery_charged\":60,\"body_battery_drained\":55,\"stress_avg\":30},\"checkin\":{\"date\":\"2026-10-20\",\"soreness\":2,\"fatigue\":null,\"stress\":null,\"mood\":4,\"motivation\":null,\"sleep_quality\":null,\"pain\":[{\"area\":\"achilles\",\"side\":\"left\",\"level\":3}],\"note_untrusted\":\"tight \\u003cb\\u003ecalf\\u003c/b\\u003e\",\"reported_via\":\"agent\",\"updated_at\":\"2026-10-22T08:00:00+02:00\"}},{\"date\":\"2026-10-21\",\"sleep_duration_s\":25200,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":50,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null},\"checkin\":null}]}"
         }
       ],
       "structuredContent": {
@@ -1370,7 +1370,8 @@
               "body_battery_charged": null,
               "body_battery_drained": null,
               "stress_avg": null
-            }
+            },
+            "checkin": null
           },
           {
             "date": "2026-10-20",
@@ -1390,6 +1391,25 @@
               "body_battery_charged": 60,
               "body_battery_drained": 55,
               "stress_avg": 30
+            },
+            "checkin": {
+              "date": "2026-10-20",
+              "soreness": 2,
+              "fatigue": null,
+              "stress": null,
+              "mood": 4,
+              "motivation": null,
+              "sleep_quality": null,
+              "pain": [
+                {
+                  "area": "achilles",
+                  "side": "left",
+                  "level": 3
+                }
+              ],
+              "note_untrusted": "tight \u003cb\u003ecalf\u003c/b\u003e",
+              "reported_via": "agent",
+              "updated_at": "2026-10-22T08:00:00+02:00"
             }
           },
           {
@@ -1410,7 +1430,8 @@
               "body_battery_charged": null,
               "body_battery_drained": null,
               "stress_avg": null
-            }
+            },
+            "checkin": null
           }
         ]
       }
@@ -1519,6 +1540,71 @@
       "structuredContent": {
         "notes": [],
         "expired_count": 0
+      }
+    },
+    "get_profile": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"sport_settings\":[{\"source\":\"intervals_icu\",\"sports\":[\"Ride\",\"VirtualRide\"],\"ftp_w\":250,\"indoor_ftp_w\":240,\"threshold_hr_bpm\":168,\"max_hr_bpm\":190,\"threshold_speed_mps\":null,\"power_zone_upper_pct_ftp\":[55,75,90,105,120,150],\"hr_zone_upper_bpm\":[120,140,155,168,190],\"updated_on\":\"2026-10-20\"},{\"source\":\"intervals_icu\",\"sports\":[\"Run\"],\"ftp_w\":null,\"indoor_ftp_w\":null,\"threshold_hr_bpm\":null,\"max_hr_bpm\":null,\"threshold_speed_mps\":3.5,\"power_zone_upper_pct_ftp\":[],\"hr_zone_upper_bpm\":[],\"updated_on\":null}]}"
+        }
+      ],
+      "structuredContent": {
+        "sport_settings": [
+          {
+            "source": "intervals_icu",
+            "sports": [
+              "Ride",
+              "VirtualRide"
+            ],
+            "ftp_w": 250,
+            "indoor_ftp_w": 240,
+            "threshold_hr_bpm": 168,
+            "max_hr_bpm": 190,
+            "threshold_speed_mps": null,
+            "power_zone_upper_pct_ftp": [
+              55,
+              75,
+              90,
+              105,
+              120,
+              150
+            ],
+            "hr_zone_upper_bpm": [
+              120,
+              140,
+              155,
+              168,
+              190
+            ],
+            "updated_on": "2026-10-20"
+          },
+          {
+            "source": "intervals_icu",
+            "sports": [
+              "Run"
+            ],
+            "ftp_w": null,
+            "indoor_ftp_w": null,
+            "threshold_hr_bpm": null,
+            "max_hr_bpm": null,
+            "threshold_speed_mps": 3.5,
+            "power_zone_upper_pct_ftp": [],
+            "hr_zone_upper_bpm": [],
+            "updated_on": null
+          }
+        ]
+      }
+    },
+    "get_profile_empty": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"sport_settings\":[]}"
+        }
+      ],
+      "structuredContent": {
+        "sport_settings": []
       }
     },
     "get_status": {
@@ -2150,6 +2236,33 @@
           }
         ]
       }
+    },
+    "log_checkin_bad_score": {
+      "content": [
+        {
+          "type": "text",
+          "text": "mood: 6 is outside the allowed range 1 to 5"
+        }
+      ],
+      "isError": true
+    },
+    "log_checkin_empty": {
+      "content": [
+        {
+          "type": "text",
+          "text": "at least one of soreness, fatigue, stress, mood, motivation, sleep_quality, pain or note is required"
+        }
+      ],
+      "isError": true
+    },
+    "log_checkin_needs_write_scope": {
+      "content": [
+        {
+          "type": "text",
+          "text": "insufficient scope"
+        }
+      ],
+      "isError": true
     },
     "no_identity": {
       "content": [
@@ -3906,7 +4019,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\"days\":[{\"date\":\"2026-10-18\",\"sleep_duration_s\":null,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":null,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null}},{\"date\":\"2026-10-20\",\"sleep_duration_s\":27000,\"hrv_overnight_avg_ms\":55,\"hrv_weekly_avg_ms\":58,\"resting_hr_bpm\":48,\"spo2_avg_pct\":96,\"weight_kg\":72.4,\"garmin_derived\":{\"sleep_score\":81,\"hrv_status\":\"BALANCED\",\"hrv_baseline_low_ms\":50,\"hrv_baseline_high_ms\":65,\"body_battery_max\":90,\"body_battery_min\":20,\"body_battery_charged\":60,\"body_battery_drained\":55,\"stress_avg\":30}},{\"date\":\"2026-10-21\",\"sleep_duration_s\":25200,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":50,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null}}]}"
+          "text": "{\"days\":[{\"date\":\"2026-10-18\",\"sleep_duration_s\":null,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":null,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null},\"checkin\":null},{\"date\":\"2026-10-20\",\"sleep_duration_s\":27000,\"hrv_overnight_avg_ms\":55,\"hrv_weekly_avg_ms\":58,\"resting_hr_bpm\":48,\"spo2_avg_pct\":96,\"weight_kg\":72.4,\"garmin_derived\":{\"sleep_score\":81,\"hrv_status\":\"BALANCED\",\"hrv_baseline_low_ms\":50,\"hrv_baseline_high_ms\":65,\"body_battery_max\":90,\"body_battery_min\":20,\"body_battery_charged\":60,\"body_battery_drained\":55,\"stress_avg\":30},\"checkin\":{\"date\":\"2026-10-20\",\"soreness\":2,\"fatigue\":null,\"stress\":null,\"mood\":4,\"motivation\":null,\"sleep_quality\":null,\"pain\":[{\"area\":\"achilles\",\"side\":\"left\",\"level\":3}],\"note_untrusted\":\"tight \\u003cb\\u003ecalf\\u003c/b\\u003e\",\"reported_via\":\"agent\",\"updated_at\":\"2026-10-22T08:00:00+02:00\"}},{\"date\":\"2026-10-21\",\"sleep_duration_s\":25200,\"hrv_overnight_avg_ms\":null,\"hrv_weekly_avg_ms\":null,\"resting_hr_bpm\":50,\"spo2_avg_pct\":null,\"weight_kg\":null,\"garmin_derived\":{\"sleep_score\":null,\"hrv_status\":null,\"hrv_baseline_low_ms\":null,\"hrv_baseline_high_ms\":null,\"body_battery_max\":null,\"body_battery_min\":null,\"body_battery_charged\":null,\"body_battery_drained\":null,\"stress_avg\":null},\"checkin\":null}]}"
         }
       ],
       "structuredContent": {
@@ -3929,7 +4042,8 @@
               "body_battery_charged": null,
               "body_battery_drained": null,
               "stress_avg": null
-            }
+            },
+            "checkin": null
           },
           {
             "date": "2026-10-20",
@@ -3949,6 +4063,25 @@
               "body_battery_charged": 60,
               "body_battery_drained": 55,
               "stress_avg": 30
+            },
+            "checkin": {
+              "date": "2026-10-20",
+              "soreness": 2,
+              "fatigue": null,
+              "stress": null,
+              "mood": 4,
+              "motivation": null,
+              "sleep_quality": null,
+              "pain": [
+                {
+                  "area": "achilles",
+                  "side": "left",
+                  "level": 3
+                }
+              ],
+              "note_untrusted": "tight \u003cb\u003ecalf\u003c/b\u003e",
+              "reported_via": "agent",
+              "updated_at": "2026-10-22T08:00:00+02:00"
             }
           },
           {
@@ -3969,7 +4102,8 @@
               "body_battery_charged": null,
               "body_battery_drained": null,
               "stress_avg": null
-            }
+            },
+            "checkin": null
           }
         ]
       },
@@ -4127,6 +4261,85 @@
       "structuredContent": {
         "notes": [],
         "expired_count": 0
+      },
+      "resultType": "complete"
+    },
+    "get_profile": {
+      "_meta": {
+        "io.modelcontextprotocol/serverInfo": {
+          "name": "coachd",
+          "version": "test"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"sport_settings\":[{\"source\":\"intervals_icu\",\"sports\":[\"Ride\",\"VirtualRide\"],\"ftp_w\":250,\"indoor_ftp_w\":240,\"threshold_hr_bpm\":168,\"max_hr_bpm\":190,\"threshold_speed_mps\":null,\"power_zone_upper_pct_ftp\":[55,75,90,105,120,150],\"hr_zone_upper_bpm\":[120,140,155,168,190],\"updated_on\":\"2026-10-20\"},{\"source\":\"intervals_icu\",\"sports\":[\"Run\"],\"ftp_w\":null,\"indoor_ftp_w\":null,\"threshold_hr_bpm\":null,\"max_hr_bpm\":null,\"threshold_speed_mps\":3.5,\"power_zone_upper_pct_ftp\":[],\"hr_zone_upper_bpm\":[],\"updated_on\":null}]}"
+        }
+      ],
+      "structuredContent": {
+        "sport_settings": [
+          {
+            "source": "intervals_icu",
+            "sports": [
+              "Ride",
+              "VirtualRide"
+            ],
+            "ftp_w": 250,
+            "indoor_ftp_w": 240,
+            "threshold_hr_bpm": 168,
+            "max_hr_bpm": 190,
+            "threshold_speed_mps": null,
+            "power_zone_upper_pct_ftp": [
+              55,
+              75,
+              90,
+              105,
+              120,
+              150
+            ],
+            "hr_zone_upper_bpm": [
+              120,
+              140,
+              155,
+              168,
+              190
+            ],
+            "updated_on": "2026-10-20"
+          },
+          {
+            "source": "intervals_icu",
+            "sports": [
+              "Run"
+            ],
+            "ftp_w": null,
+            "indoor_ftp_w": null,
+            "threshold_hr_bpm": null,
+            "max_hr_bpm": null,
+            "threshold_speed_mps": 3.5,
+            "power_zone_upper_pct_ftp": [],
+            "hr_zone_upper_bpm": [],
+            "updated_on": null
+          }
+        ]
+      },
+      "resultType": "complete"
+    },
+    "get_profile_empty": {
+      "_meta": {
+        "io.modelcontextprotocol/serverInfo": {
+          "name": "coachd",
+          "version": "test"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"sport_settings\":[]}"
+        }
+      ],
+      "structuredContent": {
+        "sport_settings": []
       },
       "resultType": "complete"
     },
@@ -4863,6 +5076,54 @@
           }
         ]
       },
+      "resultType": "complete"
+    },
+    "log_checkin_bad_score": {
+      "_meta": {
+        "io.modelcontextprotocol/serverInfo": {
+          "name": "coachd",
+          "version": "test"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "mood: 6 is outside the allowed range 1 to 5"
+        }
+      ],
+      "isError": true,
+      "resultType": "complete"
+    },
+    "log_checkin_empty": {
+      "_meta": {
+        "io.modelcontextprotocol/serverInfo": {
+          "name": "coachd",
+          "version": "test"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "at least one of soreness, fatigue, stress, mood, motivation, sleep_quality, pain or note is required"
+        }
+      ],
+      "isError": true,
+      "resultType": "complete"
+    },
+    "log_checkin_needs_write_scope": {
+      "_meta": {
+        "io.modelcontextprotocol/serverInfo": {
+          "name": "coachd",
+          "version": "test"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "insufficient scope"
+        }
+      ],
+      "isError": true,
       "resultType": "complete"
     },
     "no_identity": {

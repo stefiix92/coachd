@@ -215,6 +215,11 @@ var resultCases = []resultCase{
 	{"schema_cancel_extra", "full", "cancel_proposal", map[string]any{"id": "nope", "status": "approved"}},
 	{"send_message_empty", "write", "send_message", map[string]any{"text": ""}},
 	{"send_message_needs_write_scope", "read", "send_message", map[string]any{"text": "hi"}},
+	{"get_profile", "full", "get_profile", map[string]any{}},
+	{"get_profile_empty", "read", "get_profile", map[string]any{}},
+	{"log_checkin_empty", "write", "log_checkin", map[string]any{}},
+	{"log_checkin_bad_score", "write", "log_checkin", map[string]any{"mood": 6}},
+	{"log_checkin_needs_write_scope", "read", "log_checkin", map[string]any{"mood": 3}},
 }
 
 // goldenEnvs builds the deterministic fixtures the result cases run against.
@@ -271,6 +276,22 @@ func goldenEnvs(t *testing.T) map[string]*env {
 			LongestRun7dM: 21097.5, LongestRun7dS: 6000.4, LongestRun30dM: 30000, LongestRun30dS: 9000,
 			LongestRun90dM: 42200, LongestRun90dS: 12600},
 		{Date: mustDate(t, "2026-10-21")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := full.db.UpsertCheckin(ctx, store.Checkin{Date: mustDate(t, "2026-10-20"), Soreness: ip(2), Mood: ip(4),
+		Pain: []store.Pain{{Area: "achilles", Side: "left", Level: 3}}, Note: "tight <b>calf</b>",
+		CreatedBy: "agent:private:claude", UpdatedAt: testNow.Add(-24 * time.Hour)},
+		store.AuditEvent{At: testNow, Lane: "private", Actor: "tok-full", Client: "claude", Event: "checkin_upserted",
+			Target: "2026-10-20", Outcome: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	upd := testNow.Add(-72 * time.Hour)
+	if err := full.db.ReplaceSportSettings(ctx, "intervals_icu", []store.SportSettings{
+		{Source: "intervals_icu", SourceID: "1", Sports: []string{"Ride", "VirtualRide"}, FTPW: ip(250), IndoorFTPW: ip(240),
+			ThresholdHRBpm: ip(168), MaxHRBpm: ip(190), PowerZonesPct: []int{55, 75, 90, 105, 120, 150},
+			HRZonesBpm: []int{120, 140, 155, 168, 190}, UpdatedAt: &upd},
+		{Source: "intervals_icu", SourceID: "2", Sports: []string{"Run"}, ThresholdSpeedMps: fp(3.5)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -434,6 +455,8 @@ func TestToolResultsMatchOutputSchema(t *testing.T) {
 		"cancel_proposal":  resolvedOutput[cancelProposalOut](t, advertised, "cancel_proposal", (*svc).cancelProposal),
 		"list_workouts":    resolvedOutput[listWorkoutsOut](t, advertised, "list_workouts", (*svc).listWorkouts),
 		"send_message":     resolvedOutput[sendMessageOut](t, advertised, "send_message", (*svc).sendMessage),
+		"log_checkin":      resolvedOutput[logCheckinOut](t, advertised, "log_checkin", (*svc).logCheckin),
+		"get_profile":      resolvedOutput[profileOut](t, advertised, "get_profile", (*svc).getProfile),
 	}
 	if len(schemas) != len(advertised) {
 		t.Fatalf("%d schemas for %d advertised tools", len(schemas), len(advertised))
@@ -503,6 +526,7 @@ func TestToolResultsMatchOutputSchema(t *testing.T) {
 		n := call("upsert_note_create", "upsert_note", map[string]any{"category": "other", "text": "x"})
 		call("delete_note", "delete_note", map[string]any{"id": n["note"].(map[string]any)["id"]})
 		call("send_message", "send_message", map[string]any{"text": "x"})
+		call("log_checkin", "log_checkin", map[string]any{"mood": 4, "note": "x"})
 	}
 	for tool := range schemas {
 		if checked[tool] == 0 {
