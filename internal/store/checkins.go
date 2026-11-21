@@ -12,8 +12,9 @@ import (
 
 // Pain is one reported pain: where, which side, how bad (0-10).
 type Pain struct {
-	Area, Side string
-	Level      int
+	Area  string `json:"area"`
+	Side  string `json:"side"`
+	Level int    `json:"level"`
 }
 
 // Checkin is the runner's check-in for one date. A scale left nil was not given.

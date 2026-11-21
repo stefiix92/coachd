@@ -2,7 +2,7 @@ package store
 
 import (
 	"context"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -51,32 +51,47 @@ func TestUpsertCheckinAudits(t *testing.T) {
 	if err := db.UpsertCheckin(ctx, c, checkinAudit(at.Add(time.Minute), d)); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT lane, actor, client, event, target, outcome FROM audit_log WHERE event='checkin_upserted'`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT at, lane, actor, client, event, target, outcome FROM audit_log WHERE event='checkin_upserted' ORDER BY at`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	n := 0
 	for rows.Next() {
-		var lane, actor, client, event, target, outcome string
-		if err := rows.Scan(&lane, &actor, &client, &event, &target, &outcome); err != nil {
+		var at0, lane, actor, client, event, target, outcome string
+		if err := rows.Scan(&at0, &lane, &actor, &client, &event, &target, &outcome); err != nil {
 			t.Fatal(err)
 		}
 		n++
-		if target != "2026-11-20" || client != "agent:private:t1" {
-			t.Fatalf("row lacks date or writer: %s %s", target, client)
-		}
-		// Stored text must hold neither the note nor a score (the writer id
-		// contains no digit 2 or 3 outside the date, so strip known parts).
-		rest := strings.NewReplacer("2026-11-20", "", "agent:private:t1", "", "checkin_upserted", "", "private", "", "agent", "").Replace(lane + actor + client + event + target + outcome)
-		for _, bad := range []string{"a", "2", "3", "knee"} {
-			if strings.Contains(strings.ReplaceAll(rest, "ok", ""), bad) {
-				t.Fatalf("audit row leaks %q: %q", bad, rest)
-			}
+		want := [6]string{"private", "agent", "agent:private:t1", "checkin_upserted", "2026-11-20", "ok"}
+		if got := [6]string{lane, actor, client, event, target, outcome}; got != want {
+			t.Fatalf("audit row = %v, want %v", got, want)
 		}
 	}
 	if n != 2 {
 		t.Fatalf("audit rows = %d, want 2", n)
+	}
+}
+
+func TestCheckinPainRoundTrip(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	d := civil.Date{Year: 2026, Month: 11, Day: 20}
+	at := time.Date(2026, 11, 21, 7, 0, 0, 0, time.UTC)
+	c := Checkin{Date: d, Pain: []Pain{{Area: "knee", Side: "left", Level: 3}}, CreatedBy: "x", UpdatedAt: at}
+	if err := db.UpsertCheckin(ctx, c, checkinAudit(at, d)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.ListCheckins(ctx, d, d)
+	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0].Pain, c.Pain) {
+		t.Fatalf("pain round trip: %+v, %v", got, err)
+	}
+	var raw string
+	if err := db.sql.QueryRowContext(ctx, `SELECT pain_json FROM checkins WHERE date=?`, d.String()).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw != `[{"area":"knee","side":"left","level":3}]` {
+		t.Fatalf("pain_json = %s", raw)
 	}
 }
 
