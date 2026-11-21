@@ -4,19 +4,19 @@ Notable changes to coachd. The format follows [Keep a Changelog](https://keepach
 
 The release workflow publishes the section whose heading matches the pushed tag as the release notes.
 
-## [Unreleased]
+## [0.7.0] - 2026-11-21
 
 ### Added
 
 - **Proactive events:** the webhook can also send `health.day_ready` (today's sleep is stored), `workout.unmatched` (yesterday's delivered workout has no matching activity, checked from 06:00 local, after that morning's activity sync and FIT downloads) and `week.closed` (Monday from 06:00 local). Each carries dates and IDs only and fires once. List them in `COACHD_WEBHOOK_EVENTS` (default `activity.stored`) ([Proactive events](https://stefiix92.github.io/coachd/docs/agents/proactive/)).
 - **`COACHD_NUDGES`:** with ntfy configured, `true` sends a fixed-text push for the three new moments. Default `false`.
 - **Agent messages on the page and as a push:** the home page lists the newest 5 messages from the last 7 days, and with ntfy configured a message sends a push that says only that one waits (at most one per 15 minutes).
-
 - **Check-ins:** `log_checkin` stores the runner's own check-in for a day: soreness, fatigue, stress, mood, motivation and sleep quality (each 1 to 5), up to 5 pain entries and a note of up to 300 characters. The date is today or up to 6 days back. `get_daily_health` shows it as `checkin`, with the note as `note_untrusted` ([MCP tools](https://stefiix92.github.io/coachd/docs/agents/tools/)).
 - **Athlete profile:** with intervals.icu connected, each sync also reads your sport settings. `get_profile` returns FTP, indoor FTP, threshold and maximum heart rate, threshold speed and zone upper bounds per sport, with the date they were last changed. `get_status` lists the data type `intervals_profile` ([intervals.icu](https://stefiix92.github.io/coachd/docs/install/intervals/)).
 
 ### Changed
 
+- Take the new `deploy/compose.yaml`: it passes `COACHD_WEBHOOK_EVENTS` and `COACHD_NUDGES` to coachd. Migrations add the tables for fired events, check-ins and sport settings.
 - Tool outputs gained fields: `get_daily_health` days have `checkin`, and a date with a check-in but no Garmin data is listed with null health fields. An AI client connected before the upgrade holds the old tool definitions: reconnect it.
 - The `GarminSyncFailing` alert rule now leaves out every intervals.icu data type (`data_type!~"intervals_.*"`), so the new `intervals_profile` sync cannot fire it. When upgrading, copy the new `deploy/grafana/alerts/coachd-alerts.yaml`; on Grafana Cloud, change that rule's query to the one in the file.
 - The `send_message` description now says where a message shows. Its input and output are unchanged. Events and nudges stay off until you set the new variables; agent messages now show on the page and, with ntfy configured, send a push.
